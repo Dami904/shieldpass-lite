@@ -1,0 +1,30 @@
+{
+  "name": "@shieldpass/sdk",
+  "version": "1.0.0",
+  "description": "JavaScript/TypeScript SDK for ShieldPass — ZK-Compliant P2P Escrow on Stellar",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc && node -e \"const fs=require('fs'); if(fs.existsSync('circuits/reusable_kyc/target/reusable_kyc.json')) fs.copyFileSync('circuits/reusable_kyc/target/reusable_kyc.json','dist/reusable_kyc.json'); else console.log('Skipping reusable_kyc.json copy as it does not exist.')\"",
+    "test": "npx ts-node test.ts",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "@aztec/bb.js": "5.0.0-nightly.20260522",
+    "@noble/ciphers": "^2.2.0",
+    "@noble/curves": "^2.2.0",
+    "@noble/hashes": "^2.2.0",
+    "@noir-lang/noir_js": "1.0.0-beta.22",
+    "@stellar/stellar-sdk": "^14.6.1",
+    "passkey-kit": "^0.12.0",
+    "poseidon-lite": "^0.3.0",
+    "smart-account-kit": "0.2.10",
+    "snarkjs": "^0.7.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.0.0",
+    "vitest": "^2.1.9"
+  }
+}

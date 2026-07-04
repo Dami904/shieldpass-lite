@@ -1,0 +1,160 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Zero-storage: no name/phone fields on purpose. The BVN check's returned legal name and any
+// submitted phone number are never persisted server-side — only bvnVerified (a boolean, in
+// ComplianceAttestation) survives the request. Identity data the app doesn't need to keep, it
+// doesn't keep.
+model User {
+  id                 String   @id @default(uuid())
+  email              String   @unique
+  walletAddress      String?  @unique
+  smartWalletAddress String?  @unique
+  passkeyKeyId       String?
+  pinHash            String?
+  failedPinAttempts  Int      @default(0) // resets on success; locks the account past the threshold
+  pinLockedUntil     DateTime? // set once failedPinAttempts crosses the threshold; null = not locked
+  shieldedOwner      String?  // published owner tag (Poseidon(sk)) for email-addressed transfers
+  shieldedEncPub     String?  // x25519 public key (hex) for encrypting note blobs to this user
+  shieldedAddress    String?  // shareable "shp_…" address
+  createdAt          DateTime @default(now())
+  attestation        ComplianceAttestation?
+  bankAccounts       BankAccount[]
+  swaps              Swap[]
+}
+
+// A user's saved Naira payout destination. Funds from a completed swap land here.
+model BankAccount {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  bankName      String
+  accountNumber String
+  accountName   String
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  swaps         Swap[]
+}
+
+model ComplianceAttestation {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id])
+  leafIndex        Int
+  leafCommitment   String
+  merkleRoot       String   @default("0") // Real Poseidon root the circuit verifies against
+  hardwareAttested Boolean  @default(true)  // Tier 1: passkey hardware attestation (set at link-wallet)
+  bvnVerified      Boolean  @default(false) // Tier 2: BVN verified (only after /submit-bvn upgrade)
+  goodStanding     Boolean  @default(true)
+  createdAt        DateTime @default(now())
+}
+
+// The Trustless Instant Swap lifecycle (crypto -> Naira off-ramp).
+// status:
+//   FIAT_PROCESSING
+//   FIAT_PENDING
+//   FIAT_FAILED_REFUND_PENDING
+//   FIAT_SENT_CLAIM_PENDING
+//   COMPLETED
+//   REFUNDED
+model Swap {
+  id              String      @id @default(uuid())
+  userId          String
+  user            User        @relation(fields: [userId], references: [id])
+  bankAccountId   String?      // optional: zero-storage architecture keeps bank details client-side
+  bankAccount     BankAccount? @relation(fields: [bankAccountId], references: [id])
+  tokenAddress    String      // Any Stellar asset contract (USDC, XLM SAC, AQUA, ...)
+  assetCode       String      @default("XLM")
+  tokenLabel      String      @default("XLM")
+  cryptoAmount    Float       // legacy display field; use cryptoAmountUnits for accounting
+  nairaAmount     Float       // legacy display field; use nairaAmountKobo for accounting
+  cryptoAmountUnits String    @default("0") // exact token/base units as submitted to chain
+  nairaAmountKobo   String    @default("0") // exact NGN kobo amount
+  quoteRateNaira    Float     @default(0)
+  quoteSource       String    @default("fallback")
+  quotedAt          DateTime?
+  status          String      @default("LOCKED_ON_CHAIN")
+  swapId          String?     @unique // on-chain swap id returned by lock_swap — one payout per id, ever
+  txHash          String?
+  lencoTransferId String?
+  createdAt       DateTime    @default(now())
+}
+
+// Spent ZK nullifiers — enforces single-use of each compliance proof (replay protection).
+model Nullifier {
+  id            String   @id @default(uuid())
+  value         String   @unique
+  walletAddress String
+  action        String
+  usedAt        DateTime @default(now())
+}
+
+model RelayerTransaction {
+  id              String   @id @default(uuid())
+  walletAddress   String
+  action          String
+  txHash          String   @unique
+  status          String   // pending | success | failed
+  createdAt       DateTime @default(now())
+}
+
+// Idempotency ledger: every processed webhook event id is recorded once.
+model WebhookEvent {
+  id              String   @id @default(uuid())
+  providerEventId String   @unique
+  tradeId         String?
+  type            String
+  receivedAt      DateTime @default(now())
+}
+
+// In-app notifications / activity feed. Every user action is logged here and surfaced
+// in the app (bell + feed). Push delivery (Web Push) layers on top for arriving events.
+model Notification {
+  id        String   @id @default(uuid())
+  email     String   // the user this notification belongs to
+  type      String   // FAUCET | SHIELD | UNSHIELD | WITHDRAW_FIAT | SEND_PUBLIC | SEND_SHIELDED | RECEIVE_SHIELDED | PAYOUT_SETTLED
+  title     String
+  body      String?
+  amount    String?
+  asset     String?
+  txHash    String?  // Stellar transaction hash (if the action had an on-chain tx)
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+}
+
+// Encrypted note blobs for V2 private transfers. The sender posts a blob encrypted to the
+// recipient's encPub; recipients scan (GET since cursor) and trial-decrypt with their key.
+// The backend stores ciphertext only — it cannot read these.
+model NoteBlob {
+  id           Int      @id @default(autoincrement()) // monotonic cursor for scanning
+  commitment   String                                  // on-chain output commitment (for verification)
+  ephemeralPub String                                  // x25519 ephemeral public (hex)
+  ciphertext   String                                  // nonce ‖ ct (hex)
+  createdAt    DateTime @default(now())
+}
+
+// Shielded-pool commitment tree: every appended leaf, in order. The backend
+// rebuilds the IncrementalMerkleTree from these to serve membership paths and to
+// generate merkle_insert proofs that advance the on-chain root trustlessly.
+// status: "pending" = browser has been given the circuit input and is proving
+//         "confirmed" = browser submitted the proof and it was accepted on-chain
+model TreeLeaf {
+  poolId       String                 // shielded_pool contract id this leaf belongs to (one tree per asset)
+  index        Int                    // append-only position in the depth-20 tree (per pool)
+  commitment   String                 // BN254 field element (decimal string)
+  status       String   @default("confirmed") // "pending" | "confirmed"
+  assignedAt   DateTime?              // set when status flips to pending
+  circuitInput Json?                  // stored at assign-time so a stuck proof can be retried
+  createdAt    DateTime @default(now())
+
+  @@id([poolId, index])
+}

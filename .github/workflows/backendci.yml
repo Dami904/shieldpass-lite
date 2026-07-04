@@ -1,0 +1,68 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "SDK/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/backendci.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - "SDK/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/backendci.yml"
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: shieldpass_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NEON_CONNECTION_STRING: postgresql://postgres:postgres@localhost:5432/shieldpass_test?sslmode=disable
+      FIAT_MODE: mock
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install workspace
+        run: npm install --no-audit --no-fund
+
+      - name: Build SDK
+        run: npm run build:sdk
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Push schema to test database
+        working-directory: backend
+        run: npx prisma db push
+
+      - name: Build backend
+        run: npm run build:backend
+
+      - name: Test backend
+        run: npm run test:backend

@@ -1,0 +1,38 @@
+name: Frontend CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - "SDK/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/frontendci.yml"
+  pull_request:
+    paths:
+      - "frontend/**"
+      - "SDK/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/frontendci.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install workspace
+        run: npm install --no-audit --no-fund
+
+      - name: Build SDK
+        run: npm run build:sdk
+
+      - name: Build frontend
+        run: npm run build:frontend

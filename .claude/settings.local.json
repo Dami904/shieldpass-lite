@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(nargo test *)",
+      "Bash(nargo compile *)",
+      "Bash(node -e \"console.log\\(require\\('./target/reusable_kyc.json'\\).noir_version\\)\")",
+      "Bash(node -e \"console.log\\(require\\('@noir-lang/noir_js/package.json'\\).version\\)\")",
+      "Bash(node -e \"console.log\\(require\\('@aztec/bb.js/package.json'\\).version\\)\")",
+      "Bash(node -e \"console.log\\(require\\('@noir-lang/acvm_js/package.json'\\).version\\)\")",
+      "Bash(node -e \"console.log\\(require\\('@noir-lang/backend_barretenberg/package.json'\\).version\\)\")",
+      "Bash(timeout 8 npm view @noir-lang/noir_js@latest version)",
+      "Bash(timeout 300 ~/.nargo/bin/noirup)",
+      "Bash(~/.nargo/bin/nargo --version)",
+      "Bash(npm run *)",
+      "Bash(node -e \"console.log\\('noir_version:', require\\('./dist/reusable_kyc.json'\\).noir_version\\)\")",
+      "Bash(cat implementer-prompt.md)",
+      "Bash(cat spec-reviewer-prompt.md)",
+      "Bash(cat code-quality-reviewer-prompt.md)",
+      "Bash(npx vitest *)",
+      "Bash(npx prisma *)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(node -e \"console.log\\(require\\('@openzeppelin/relayer-plugin-channels/package.json'\\).version\\)\")",
+      "Bash(echo \"installed channels version: $\\(node -e \"console.log\\(require\\('@openzeppelin/relayer-plugin-channels/package.json'\\).version\\)\"\\)\")",
+      "Bash(npx tsc *)",
+      "Bash(node *)",
+      "Bash(cargo build *)",
+      "Bash(cargo test *)",
+      "Bash(cp build/groth16_fixtures.rs ../contracts/shielded_pool/src/test_fixtures.rs)",
+      "Read(//mnt/c/Users/USER/contracts/shielded_pool/src/**)",
+      "Bash(echo \"SDK exit: $?\")",
+      "Bash(echo \"backend exit: $?\")"
+    ]
+  }
+}
