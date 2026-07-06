@@ -31,12 +31,18 @@ export default defineConfig({
   },
   // Cross-origin isolation so barretenberg (bb.js) can use SharedArrayBuffer for in-browser ZK
   // proving. credentialless (not require-corp) keeps the jsdelivr Geist fonts working.
+  // COOP is 'same-origin-allow-popups', not the stricter 'same-origin': Web3Auth's login flow
+  // opens an OAuth popup that must postMessage back to this window on completion, and plain
+  // same-origin severs window.opener for cross-origin popups — the popup hangs on its callback
+  // page forever. bb.js feature-detects `crossOriginIsolated` (see getSharedMemoryAvailable in
+  // barretenberg_wasm/helpers/browser) and falls back to single-threaded proving gracefully when
+  // it's unavailable, so this only costs proving speed, not correctness.
   server: {
     host: 'localhost',
     port: 5173,
     open: true,
     headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
       'Cross-Origin-Embedder-Policy': 'credentialless',
     },
   },
@@ -44,7 +50,7 @@ export default defineConfig({
     host: 'localhost',
     port: 4173,
     headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
       'Cross-Origin-Embedder-Policy': 'credentialless',
     },
   },
