@@ -49,7 +49,7 @@ export default function MainLayout({
   return (
     <div className="min-h-screen flex flex-col relative font-sans">
       {/* Renders the background gradient requested by the user */}
-      {["/withdraw", "/send", "/shield", "/dashboard", "/activity"].includes(currentPath) ? (
+      {["/withdraw", "/send", "/dashboard", "/activity"].includes(currentPath) ? (
         <div className="fixed inset-0 -z-20">
           <DarkVeil speed={0.4} warpAmount={0.3} noiseIntensity={0.04} scanlineIntensity={0.2} scanlineFrequency={100} />
         </div>
@@ -89,15 +89,6 @@ export default function MainLayout({
             Verify Identity
           </Link>
           )}
-          <Link
-            to="/shield"
-            className={`flex items-center gap-2 transition-all duration-300 ${isActive("/shield") ? "opacity-100 font-semibold" : "opacity-60 hover:opacity-100"}`}
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-            Shield
-          </Link>
           <Link
             to="/withdraw"
             className={`flex items-center gap-2 transition-all duration-300 ${isActive("/withdraw") ? "opacity-100 font-semibold" : "opacity-60 hover:opacity-100"}`}
@@ -194,16 +185,6 @@ export default function MainLayout({
             Verify Identity
           </Link>
           )}
-          <Link
-            to="/shield"
-            onClick={() => setIsMobileMenuOpen(false)}
-            className={`flex items-center gap-3 py-4 border-b border-border ${isActive("/shield") ? "text-primary font-semibold" : "text-muted-foreground"}`}
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-            Shield
-          </Link>
           <Link
             to="/withdraw"
             onClick={() => setIsMobileMenuOpen(false)}

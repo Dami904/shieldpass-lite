@@ -24,6 +24,7 @@ model User {
   shieldedOwner      String?  // published owner tag (Poseidon(sk)) for email-addressed transfers
   shieldedEncPub     String?  // x25519 public key (hex) for encrypting note blobs to this user
   shieldedAddress    String?  // shareable "shp_…" address
+  socialSub          String?  @unique // Web3Auth verifierId, set once a user signs in via a social/email login
   createdAt          DateTime @default(now())
   attestation        ComplianceAttestation?
   bankAccounts       BankAccount[]

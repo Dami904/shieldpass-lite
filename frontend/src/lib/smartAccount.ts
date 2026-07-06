@@ -20,13 +20,3 @@ export async function makeWallet(): Promise<SmartAccountWalletClient> {
     relayerUrl: RELAYER_URL,
   })
 }
-
-/** Legacy passkey-kit submit relay (POST /wallet/submit) — retained as a fallback. */
-export async function submitSigned(signedXdr: string): Promise<string> {
-  const res = await fetch(`${API_URL}/wallet/submit`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ signedXdr }),
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || 'submit failed')
-  return data.hash
-}

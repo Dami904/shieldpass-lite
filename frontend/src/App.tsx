@@ -12,7 +12,6 @@ import { SessionProvider, useSession } from "./lib/session";
 import LandingPage from "./pages/LandingPage";
 import OnboardingPage from "./pages/OnboardingPage";
 import SwapPage from "./pages/SwapPage";
-import DepositPage from "./pages/DepositPage";
 import SendPage from "./pages/SendPage";
 import ActivityPage from "./pages/ActivityPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -84,14 +83,10 @@ export default function App() {
         } />
         <Route path="/swap" element={<Navigate to="/withdraw" replace />} />
 
-        <Route path="/shield" element={
-          <MainLayout walletComponent={<ProfileButton />}>
-            <DepositPage />
-          </MainLayout>
-        } />
-        <Route path="/deposit" element={<Navigate to="/shield" replace />} />
-
-        <Route path="/unshield" element={<Navigate to="/shield" replace />} />
+        {/* Shielding is automatic on deposit now — old links redirect to the dashboard. */}
+        <Route path="/shield" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/deposit" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/unshield" element={<Navigate to="/dashboard" replace />} />
 
         <Route path="/send" element={
           <MainLayout walletComponent={<ProfileButton />}>

@@ -39,6 +39,11 @@ jobs:
     env:
       NEON_CONNECTION_STRING: postgresql://postgres:postgres@localhost:5432/shieldpass_test?sslmode=disable
       FIAT_MODE: mock
+      # Dummy but non-empty — services/pools.ts builds its pool registry from this at import
+      # time, and swap.test.ts's "verify against on-chain truth" tests need a truthy pool id to
+      # exercise that branch (ShieldedPoolClient itself is mocked, so the value's real-ness
+      # doesn't matter, only that it's set).
+      STELLAR_CONTRACT_ID: CTESTPOOLPLACEHOLDER00000000000000000000000000000000000
 
     steps:
       - uses: actions/checkout@v4
@@ -52,7 +57,9 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Build SDK
-        run: npm run build:sdk
+        run: |
+          npm run build:sdk
+          cp frontend/public/reusable_kyc.json SDK/dist/reusable_kyc.json
 
       - name: Generate Prisma client
         run: npm run prisma:generate
@@ -60,6 +67,10 @@ jobs:
       - name: Push schema to test database
         working-directory: backend
         run: npx prisma db push
+
+      - name: Lint backend
+        working-directory: backend
+        run: npm run lint
 
       - name: Build backend
         run: npm run build:backend

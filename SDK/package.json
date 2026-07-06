@@ -1,7 +1,7 @@
 {
   "name": "@shieldpass/sdk",
   "version": "1.0.0",
-  "description": "JavaScript/TypeScript SDK for ShieldPass — ZK-Compliant P2P Escrow on Stellar",
+  "description": "JavaScript/TypeScript SDK for Shieldpass-lite — ZK-shielded payments on Stellar",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -16,7 +16,6 @@
     "@noble/hashes": "^2.2.0",
     "@noir-lang/noir_js": "1.0.0-beta.22",
     "@stellar/stellar-sdk": "^14.6.1",
-    "passkey-kit": "^0.12.0",
     "poseidon-lite": "^0.3.0",
     "smart-account-kit": "0.2.10",
     "snarkjs": "^0.7.6"

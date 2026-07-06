@@ -1,5 +1,5 @@
 {
-  "name": "shieldpass",
+  "name": "shieldpass-lite",
   "private": true,
   "workspaces": [
     "SDK",
@@ -7,13 +7,15 @@
     "frontend"
   ],
   "scripts": {
+    "postinstall": "npm run build:sdk",
     "build:sdk": "npm --workspace @shieldpass/sdk run build",
     "build:backend": "npm --workspace shieldpass-backend run build",
     "build:frontend": "npm --workspace shieldpass-frontend run build",
     "build": "npm run build:sdk && npm run build:backend && npm run build:frontend",
     "test:backend": "npm --workspace shieldpass-backend test",
+    "test:frontend": "npm --workspace shieldpass-frontend test",
     "test:sdk": "npm --workspace @shieldpass/sdk run test:unit",
-    "test": "npm run test:backend && npm run test:sdk",
+    "test": "npm run test:backend && npm run test:frontend && npm run test:sdk",
     "prisma:generate": "npm --workspace shieldpass-backend exec prisma generate"
   }
 }

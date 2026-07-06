@@ -1,62 +1,12 @@
 import { ChannelsClient } from '@openzeppelin/relayer-plugin-channels';
-import { Keypair, Transaction, TransactionBuilder, Account, Operation, BASE_FEE, hash, rpc, xdr } from '@stellar/stellar-sdk';
+import { Keypair, Transaction, TransactionBuilder, Account, Operation, BASE_FEE, rpc, xdr } from '@stellar/stellar-sdk';
 import { withAccountLock, waitForLanding } from '@shieldpass/sdk';
+import { logger } from '../logger';
 
 const NETWORK = process.env.STELLAR_NETWORK_PASSPHRASE || 'Test SDF Network ; September 2015';
 const RPC_URL = process.env.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org';
 
-// passkey-kit builds its transactions with this deterministic, PUBLIC placeholder as the source
-// account: Keypair.fromRawEd25519Seed(hash('kalepail')). We re-sign with it after rewriting fees.
-const WALLET_KEYPAIR = Keypair.fromRawEd25519Seed(hash(Buffer.from('kalepail')));
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/** True if the tx is a Soroban contract creation (wallet deploy) rather than a contract invoke. */
-function isContractCreate(tx: Transaction): boolean {
-  try {
-    if (tx.operations.length !== 1) return false;
-    const op = tx.operations[0] as any;
-    if (op.type !== 'invokeHostFunction') return false;
-    return op.func.switch().name.toLowerCase().includes('createcontract');
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Channels requires a Soroban tx's `fee` to equal EXACTLY its resource fee (it covers the
- * inclusion fee). stellar-sdk assembles fee = resourceFee + inclusion (~2×), so we rewrite the
- * fee down to the resource fee and re-sign. Used only for the (cheap) gasless invoke path.
- */
-function matchFeeToResourceFee(signedXdr: string): string {
-  const env = new Transaction(signedXdr, NETWORK).toEnvelope();
-  if (env.switch() !== xdr.EnvelopeType.envelopeTypeTx()) return signedXdr;
-  const v1 = env.v1();
-  const inner = v1.tx();
-  if (inner.ext().switch() !== 1) return signedXdr; // 1 === SorobanTransactionData present
-
-  const resourceFee = Number(inner.ext().sorobanData().resourceFee().toString());
-  if (!Number.isSafeInteger(resourceFee) || resourceFee > 0xffffffff) return signedXdr;
-  if (inner.fee() === resourceFee) return signedXdr;
-
-  inner.fee(resourceFee);
-  v1.signatures([]);
-  const rebuilt = new Transaction(env, NETWORK);
-  rebuilt.sign(WALLET_KEYPAIR);
-  return rebuilt.toXDR();
-}
-
-/** Gasless invoke (trades): submit via OpenZeppelin Channels (cheap, under the relayer fee cap). */
-async function submitViaChannels(signedXdr: string): Promise<string> {
-  const baseUrl = process.env.CHANNELS_URL;
-  const apiKey = process.env.CHANNELS_API_KEY;
-  if (!baseUrl || !apiKey) {
-    throw new Error('Channels relayer not configured (set CHANNELS_URL and CHANNELS_API_KEY).');
-  }
-  const client = new ChannelsClient({ baseUrl, apiKey });
-  const res: any = await client.submitTransaction({ xdr: matchFeeToResourceFee(signedXdr) });
-  return res?.hash ?? res?.txHash ?? res?.id ?? String(res);
-}
 
 /**
  * Wallet deploy: the Soroban resource fee (~108 XLM, mostly persistent-entry rent) exceeds the
@@ -92,17 +42,6 @@ async function submitDeployViaRelayer(inner: Transaction): Promise<string> {
   return sent.hash;
 }
 
-/**
- * Submit a passkey-signed transaction XDR. Wallet deploys are fee-bumped + paid by our funded
- * account (the deploy's resource fee exceeds the Channels cap); everything else goes gaslessly
- * through Channels. We call ChannelsClient directly because passkey-kit ships raw TypeScript that
- * crashes under plain Node (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING).
- */
-export async function submitSigned(signedXdr: string): Promise<string> {
-  const tx = new Transaction(signedXdr, NETWORK);
-  return isContractCreate(tx) ? submitDeployViaRelayer(tx) : submitViaChannels(signedXdr);
-}
-
 // ──────────────────────────────────────────────────────────────────────────
 // smart-account-kit relayer proxy
 //
@@ -136,7 +75,7 @@ async function submitAssembledTx(tx: Transaction): Promise<string> {
       if (hashOut) return String(hashOut);
       throw new Error('Channels returned no hash');
     } catch (channelErr) {
-      console.warn('[relay] Channels submit failed, falling back to RPC:', (channelErr as Error)?.message);
+      logger.warn({ err: (channelErr as Error)?.message }, '[relay] Channels submit failed, falling back to RPC');
     }
   }
   // Fallback: the relayer account is the fee source on the assembled tx, so RPC accepts it directly.
@@ -206,7 +145,7 @@ export async function relay(body: { func?: string; auth?: string[]; xdr?: string
     }
     return { success: false, error: 'Provide either { func, auth } or { xdr }.', errorCode: 'INVALID_PARAMS' };
   } catch (e: any) {
-    console.error('[relay] submission failed:', e);
+    logger.error({ err: e }, '[relay] submission failed');
     return { success: false, error: e?.message || 'relay submission failed', errorCode: 'ONCHAIN_FAILED' };
   }
 }

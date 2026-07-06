@@ -59,4 +59,12 @@ export default defineConfig({
   worker: {
     format: 'es',
   },
+  test: {
+    // 'jsdom' times out spawning its worker in some sandboxed environments (slow filesystem
+    // I/O initializing its dependency tree) — default to 'node' since the current suite is pure
+    // logic with no DOM needs. Add `// @vitest-environment jsdom` at the top of an individual
+    // test file if a future component test needs a DOM.
+    environment: 'node',
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+  },
 })

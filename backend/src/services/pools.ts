@@ -36,7 +36,7 @@ function buildRegistry(): Map<string, PoolConfig> {
     asset: 'XLM',
     sacAddress: process.env.XLM_SAC_ADDRESS || '',
     faucet: true,
-    faucetAmount: BigInt(process.env.FAUCET_NOTE_AMOUNT || '5000000000'),
+    faucetAmount: BigInt(process.env.FAUCET_NOTE_AMOUNT || '1000000000'),
   });
 
   // USDC pool — only when explicitly configured. USDC is never faucet-seeded; it enters

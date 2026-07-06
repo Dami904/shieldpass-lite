@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { treeServiceFor } from '../services/tree';
+import { logger } from '../logger';
 
 const router = Router();
 
@@ -14,6 +15,7 @@ router.get('/state', async (req, res) => {
     try {
         res.json(await svcFrom(req.query.pool).state());
     } catch (e: any) {
+        logger.error({ err: e }, '[tree/state] failed');
         res.status(500).json({ error: e?.message || 'tree state failed' });
     }
 });
@@ -25,6 +27,7 @@ router.get('/path/:index', async (req, res) => {
     try {
         res.json(await svcFrom(req.query.pool).pathFor(index));
     } catch (e: any) {
+        logger.error({ err: e }, '[tree/path] failed');
         res.status(500).json({ error: e?.message || 'tree path failed' });
     }
 });
@@ -45,7 +48,7 @@ router.post('/assign', async (req, res) => {
         const result = await svcFrom(pool).assignInsert(BigInt(commitment));
         res.json(result);
     } catch (e: any) {
-        console.error('[tree/assign] FAILED commitment=%s pool=%s error=%s', commitment, pool, e?.message);
+        logger.error({ commitment, pool, err: e }, '[tree/assign] FAILED');
         res.status(500).json({ error: e?.message || 'assign failed' });
     }
 });
@@ -70,7 +73,7 @@ router.post('/confirm', async (req, res) => {
         const result = await svcFrom(pool).confirmInsert(index, proof, signals);
         res.json(result);
     } catch (e: any) {
-        console.error('[tree/confirm] FAILED index=%s pool=%s error=%s', index, pool, e?.message);
+        logger.error({ index, pool, err: e }, '[tree/confirm] FAILED');
         res.status(500).json({ error: e?.message || 'confirm failed' });
     }
 });
@@ -82,6 +85,7 @@ router.get('/index/:commitment', async (req, res) => {
         if (index === null) return res.status(404).json({ error: 'commitment not in tree' });
         res.json({ index });
     } catch (e: any) {
+        logger.error({ err: e }, '[tree/index] failed');
         res.status(500).json({ error: e?.message || 'tree index lookup failed' });
     }
 });
@@ -100,6 +104,7 @@ router.get('/retry/:index', async (req, res) => {
         if (!leaf.circuitInput) return res.status(409).json({ error: 'no circuitInput stored for this leaf' });
         res.json({ index, status: 'pending', circuitInput: leaf.circuitInput });
     } catch (e: any) {
+        logger.error({ err: e }, '[tree/retry] failed');
         res.status(500).json({ error: e?.message || 'retry lookup failed' });
     }
 });
@@ -111,6 +116,7 @@ router.get('/pending-count', async (_req, res) => {
         const count = await prisma.treeLeaf.count({ where: { status: 'pending' } });
         res.json({ count });
     } catch (e: any) {
+        logger.error({ err: e }, '[tree/pending-count] failed');
         res.status(500).json({ error: e?.message });
     }
 });

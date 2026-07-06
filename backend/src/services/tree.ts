@@ -5,6 +5,7 @@ import {
 import { StellarContractClient } from '@shieldpass/sdk/dist/stellar';
 import { prisma } from '../db';
 import { type PoolConfig, getPoolConfig, defaultPoolId, allPoolIds } from './pools';
+import { logger } from '../logger';
 
 const RELAYER_SECRET = process.env.STELLAR_RELAYER_SECRET || '';
 const RPC_URL = process.env.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org';
@@ -150,7 +151,7 @@ class TreeService {
             }
         } catch (e: any) {
             if (e.message?.includes('DIVERGED')) throw e;
-            console.warn('[tree] chain sync check skipped (RPC unreachable?):', e.message);
+            logger.warn({ err: e.message, poolId: this.poolId }, '[tree] chain sync check skipped (RPC unreachable?)');
         }
     }
 
@@ -172,7 +173,7 @@ class TreeService {
             await prisma.treeLeaf.create({
                 data: { poolId: this.poolId, index, commitment: commitment.toString(), status: 'pending', assignedAt: new Date(), circuitInput: circuitInput as any },
             });
-            console.log(`[tree/assign] pool=${this.poolId} index=${index} commitment=${commitment}`);
+            logger.info({ poolId: this.poolId, index, commitment: commitment.toString() }, '[tree/assign]');
             return { index, circuitInput };
         });
     }
@@ -191,7 +192,7 @@ class TreeService {
         const leaf = await prisma.treeLeaf.findUnique({ where: { poolId_index: { poolId: this.poolId, index } } });
         if (!leaf) throw new Error(`No leaf at index ${index} in pool ${this.poolId}`);
         if (leaf.status === 'confirmed') {
-            console.warn(`[tree/confirm] pool=${this.poolId} index=${index} already confirmed — skipping`);
+            logger.warn({ poolId: this.poolId, index }, '[tree/confirm] already confirmed — skipping');
             return { txHash: undefined };
         }
 
@@ -226,8 +227,8 @@ class TreeService {
         if (chainRoot === expectedRoot) {
             // The insert landed (whether or not the submit call threw). Confirm it.
             await prisma.treeLeaf.update({ where: { poolId_index: { poolId: this.poolId, index } }, data: { status: 'confirmed' } });
-            if (submitErr) console.warn(`[tree/confirm] pool=${this.poolId} index=${index} landed despite transient error: ${submitErr instanceof Error ? submitErr.message : submitErr}`);
-            else console.log(`[tree/confirm] pool=${this.poolId} index=${index} tx=${txHash} (root verified against chain)`);
+            if (submitErr) logger.warn({ poolId: this.poolId, index, err: submitErr instanceof Error ? submitErr.message : submitErr }, '[tree/confirm] landed despite transient error');
+            else logger.info({ poolId: this.poolId, index, txHash }, '[tree/confirm] root verified against chain');
             return { txHash };
         }
 
@@ -250,7 +251,7 @@ class TreeService {
             where: { poolId: this.poolId, status: 'pending', index: { gte: index } },
         });
         this.loaded = false; // force a clean rebuild from confirmed leaves on the next request
-        if (count > 0) console.warn(`[tree/rollback] pool=${this.poolId} rolled back ${count} pending leaf(ves) >= ${index}; in-memory tree invalidated`);
+        if (count > 0) logger.warn({ poolId: this.poolId, count, fromIndex: index }, '[tree/rollback] rolled back pending leaves; in-memory tree invalidated');
     }
 
     /** Fetch a stored pending leaf (for the browser's /tree/retry recovery). */
@@ -280,14 +281,14 @@ class TreeService {
     async settleFaucetOnChain(commitment: bigint): Promise<boolean> {
         if (!this.poolId || !RELAYER_SECRET) return false;
         if (!this.pool.faucet) {
-            console.warn(`[tree/faucet] pool ${this.poolId} is not a faucet pool — skipping settle`);
+            logger.warn({ poolId: this.poolId }, '[tree/faucet] pool is not a faucet pool — skipping settle');
             return false;
         }
         const pool = new ShieldedPoolClient(RPC_URL, NETWORK, this.poolId);
         const relayer = Keypair.fromSecret(RELAYER_SECRET);
         const sac = this.pool.sacAddress;
         const needsFunding = !!sac;
-        if (!needsFunding) console.warn('[tree/faucet] pool SAC not set — pool not funded, unshield will fail');
+        if (!needsFunding) logger.warn({ poolId: this.poolId }, '[tree/faucet] pool SAC not set — pool not funded, unshield will fail');
 
         const MAX_ATTEMPTS = 3;
         let seeded = false;
@@ -298,7 +299,7 @@ class TreeService {
                     // faucetSeed waits for landing internally, so `seeded` only flips once it's on-chain.
                     await pool.faucetSeed(fieldToBytes32(commitment), relayer);
                     seeded = true;
-                    console.log(`[tree/faucet] faucet_seed landed for commitment=${commitment}`);
+                    logger.info({ poolId: this.poolId, commitment: commitment.toString() }, '[tree/faucet] faucet_seed landed');
                 }
                 if (sac && !funded) {
                     const stellar = new StellarContractClient(RPC_URL, NETWORK, sac);
@@ -306,11 +307,11 @@ class TreeService {
                     // only flips once the pool transfer is committed.
                     const fundHash = await stellar.fundWallet(sac, this.poolId, this.pool.faucetAmount, relayer);
                     funded = true;
-                    console.log(`[tree/faucet] funded pool ${this.pool.faucetAmount} stroops tx=${fundHash}`);
+                    logger.info({ poolId: this.poolId, amount: this.pool.faucetAmount, txHash: fundHash }, '[tree/faucet] funded pool');
                 }
                 return needsFunding ? funded : seeded;
             } catch (err) {
-                console.error(`[tree/faucet] settle attempt ${attempt}/${MAX_ATTEMPTS} failed:`, err instanceof Error ? err.message : err);
+                logger.error({ poolId: this.poolId, attempt, maxAttempts: MAX_ATTEMPTS, err: err instanceof Error ? err.message : err }, '[tree/faucet] settle attempt failed');
                 if (attempt < MAX_ATTEMPTS) await new Promise((r) => setTimeout(r, 2000 * attempt));
             }
         }
@@ -328,14 +329,13 @@ class TreeService {
         if (stale.length === 0) return;
 
         const indices = stale.map((l) => l.index);
-        console.warn(`[tree/cleanup] pool=${this.poolId} rolling back ${stale.length} expired pending leaf(ves):`,
-            indices.map((i) => `index=${i}`).join(', '));
+        logger.warn({ poolId: this.poolId, count: stale.length, indices }, '[tree/cleanup] rolling back expired pending leaves');
 
         await prisma.treeLeaf.deleteMany({ where: { poolId: this.poolId, index: { in: indices } } });
 
         // Force a full rebuild on the next operation so the in-memory tree drops these.
         this.loaded = false;
-        console.log('[tree/cleanup] in-memory tree invalidated — will rebuild on next request');
+        logger.info({ poolId: this.poolId }, '[tree/cleanup] in-memory tree invalidated — will rebuild on next request');
     }
 }
 

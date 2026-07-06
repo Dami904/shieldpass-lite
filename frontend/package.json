@@ -7,11 +7,13 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test": "vitest run",
     "preview": "vite preview"
   },
   "dependencies": {
     "@aztec/bb.js": "^4.3.1",
     "@creit.tech/stellar-wallets-kit": "^2.3.0",
+    "@noble/hashes": "^2.2.0",
     "@paper-design/shaders-react": "^0.0.76",
     "@radix-ui/react-checkbox": "^1.3.5",
     "@radix-ui/react-label": "^2.1.10",
@@ -20,6 +22,7 @@
     "@stellar/freighter-api": "^6.0.1",
     "@stellar/stellar-sdk": "^14.6.1",
     "@tanstack/react-query": "^5.101.0",
+    "@web3auth/modal": "^11.3.0",
     "axios": "^1.18.0",
     "buffer": "^6.0.3",
     "class-variance-authority": "^0.7.1",
@@ -37,8 +40,7 @@
     "tailwind-merge": "^3.6.0",
     "three": "^0.184.0",
     "zod": "^4.4.3",
-    "zustand": "^5.0.14",
-    "@noble/hashes": "^2.2.0"
+    "zustand": "^5.0.14"
   },
   "overrides": {
     "@stellar/stellar-sdk": "^14.6.1",
@@ -60,10 +62,12 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
+    "jsdom": "^29.1.1",
     "postcss": "^8.5.15",
     "tailwindcss": "^4.3.1",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "vitest": "^4.1.10"
   }
 }

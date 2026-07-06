@@ -32,3 +32,35 @@ export const accountLookupLimiter = rateLimit({
   legacyHeaders: false,
   skip,
 });
+
+/** /auth/web3auth verifies a client-supplied idToken against a remote JWKS on every call — cap
+ * how fast a single IP can throw tokens at it (garbage-token DoS / email-enumeration timing). */
+export const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip,
+});
+
+/** /kyc/submit-bvn calls out to a paid third-party BVN verification API — without a limit this
+ * is an open door to run up the provider bill or brute-force BVNs against it. */
+export const bvnLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip,
+});
+
+/** /kyc/link-wallet grants a real faucet-funded note to every brand-new account, but it also
+ * serves returning-user logins — so this stays generous (a shared office/campus IP can see many
+ * logins/hour) while still bounding how fast scripted new-account creation can drain the faucet
+ * pool wallet. */
+export const faucetLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip,
+});

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { TrustedIssuer, isValidSorobanAddress, noteCommitment, encryptNote } from '@shieldpass/sdk';
 import { prisma } from '../db';
+import { logger } from '../logger';
 
 const fromHex = (s: string) => Uint8Array.from(s.match(/.{2}/g)!.map((b) => parseInt(b, 16)));
 const toHex = (u8: Uint8Array) => Buffer.from(u8).toString('hex');
@@ -8,15 +9,15 @@ import { treeService } from '../services/tree';
 import { notify } from './notifications';
 import { verifyBvn } from '../services/bvn';
 import { hashPin, verifyPin, activePinLock, recordFailedPinAttempt, clearPinLock } from '../services/pin';
-import { seedWalletFromEnv, type SeedResult } from '../services/seed';
-import { pinLimiter } from '../middleware/rateLimit';
+import { seedWalletFromEnv } from '../services/seed';
+import { pinLimiter, bvnLimiter, faucetLimiter } from '../middleware/rateLimit';
 
 const router = Router();
 const issuer = new TrustedIssuer();
 
 // Faucet seed is configurable (no hardcoded amount). Change FAUCET_NOTE_AMOUNT /
 // FAUCET_NOTE_ASSET in the backend env to adjust the onboarding seed someday.
-const FAUCET_NOTE_AMOUNT = BigInt(process.env.FAUCET_NOTE_AMOUNT || '5000000000'); // 500 XLM in stroops (7 decimals)
+const FAUCET_NOTE_AMOUNT = BigInt(process.env.FAUCET_NOTE_AMOUNT || '1000000000'); // 100 XLM in stroops (7 decimals)
 const FAUCET_NOTE_ASSET = process.env.FAUCET_NOTE_ASSET || 'XLM';
 
 // Re-issue a compliance leaf from the user's current Tier flags and persist it.
@@ -38,11 +39,15 @@ async function issueLeaf(userId: string, hardwareAttested: boolean, bvnVerified:
 // Link a freshly-created passkey smart wallet to the user (creating the user if needed).
 // Issues a Tier 1 compliance leaf (hardwareAttested = true, bvnVerified = false) and returns the
 // secret salt. NO BVN required here — small swaps only need the hardware (passkey) attestation.
-router.post('/link-wallet', async (req, res) => {
-  const { email, pin, smartWalletAddress, passkeyKeyId, shieldedOwner, shieldedEncPub, shieldedAddress } = req.body;
+router.post('/link-wallet', faucetLimiter, async (req, res) => {
+  const { email, pin, smartWalletAddress, passkeyKeyId, shieldedOwner, shieldedEncPub, shieldedAddress, socialSub } = req.body;
   if (!email || !smartWalletAddress) return res.status(400).json({ error: 'email and smartWalletAddress are required.' });
   if (!isValidSorobanAddress(smartWalletAddress)) return res.status(400).json({ error: 'Invalid smart wallet address.' });
-  if (pin && !/^\d{4,6}$/.test(String(pin))) return res.status(400).json({ error: 'PIN must be 4-6 digits.' });
+  // Accepts either a legacy 4-6 digit PIN or a longer password (8+ chars) — both are just the
+  // seed material for deriveSeedFromPassword, so any non-trivial length is fine.
+  if (pin && !/^\d{4,6}$/.test(String(pin)) && String(pin).length < 8) {
+    return res.status(400).json({ error: 'PIN must be 4-6 digits, or a password of 8+ characters.' });
+  }
 
   try {
     const pinHash = pin ? hashPin(String(pin)) : undefined;
@@ -55,10 +60,11 @@ router.post('/link-wallet', async (req, res) => {
 
     // Publish the shielded identity (owner/encPub/address) so others can send by email.
     const shielded = (shieldedOwner && shieldedEncPub) ? { shieldedOwner, shieldedEncPub, shieldedAddress } : {};
+    const social = socialSub ? { socialSub } : {};
     const user = await prisma.user.upsert({
       where: { email },
-      update: { smartWalletAddress, passkeyKeyId: passkeyKeyId ?? null, ...(pinHash ? { pinHash } : {}), ...shielded },
-      create: { email, smartWalletAddress, passkeyKeyId: passkeyKeyId ?? null, pinHash, ...shielded },
+      update: { smartWalletAddress, passkeyKeyId: passkeyKeyId ?? null, ...(pinHash ? { pinHash } : {}), ...shielded, ...social },
+      create: { email, smartWalletAddress, passkeyKeyId: passkeyKeyId ?? null, pinHash, ...shielded, ...social },
     });
 
     // Tier 1 leaf: hardware-attested, not yet BVN-verified.
@@ -102,7 +108,7 @@ router.post('/link-wallet', async (req, res) => {
             // Reserve the tree index + circuit input ONLY after the pool is funded (so a failed
             // faucet never leaves an orphaned pending leaf). faucet-status reads this back.
             const { index } = await treeService.faucetAssign(commitment);
-            console.log(`[kyc/link-wallet] backed + reserved ${noteAmount} ${FAUCET_NOTE_ASSET} ZK Note at index ${index}.`);
+            logger.info({ noteAmount: noteAmount.toString(), asset: FAUCET_NOTE_ASSET, index }, '[kyc/link-wallet] backed + reserved ZK note');
 
             // SELF-addressed encrypted blob so the balance is recoverable from the blob store
             // after a logout / new device. Shape MUST match useNoteScanner.
@@ -116,29 +122,29 @@ router.post('/link-wallet', async (req, res) => {
                 data: { commitment: commitment.toString(), ephemeralPub: toHex(ephemeralPublic), ciphertext: toHex(ciphertext) },
               });
             } catch (blobErr) {
-              console.error('[kyc/link-wallet] faucet blob publish failed:', blobErr);
+              logger.error({ err: blobErr }, '[kyc/link-wallet] faucet blob publish failed');
             }
             notify(email, 'FAUCET', `Welcome bonus received`, { amount: displayAmount, asset: FAUCET_NOTE_ASSET }).catch(() => {});
           } else {
             // Couldn't back the shielded note — public fallback so the user still gets funds.
-            console.warn('[kyc/link-wallet] faucet settle failed after retries — falling back to public seed.');
+            logger.warn('[kyc/link-wallet] faucet settle failed after retries — falling back to public seed.');
             const results = await seedWalletFromEnv(smartWalletAddress);
             const funded = results.some((r) => r.status === 'funded' || r.status === 'skipped');
             for (const r of results) {
-              if (r.status === 'funded') console.log(`[kyc/link-wallet] fallback seeded ${r.tokenId} -> ${smartWalletAddress} tx:${r.hash}`);
-              if (r.status === 'failed') console.error(`[kyc/link-wallet] fallback seed failed for ${r.tokenId}:`, r.error);
+              if (r.status === 'funded') logger.info({ tokenId: r.tokenId, smartWalletAddress, hash: r.hash }, '[kyc/link-wallet] fallback seeded');
+              if (r.status === 'failed') logger.error({ tokenId: r.tokenId, err: r.error }, '[kyc/link-wallet] fallback seed failed');
             }
             if (funded) notify(email, 'FAUCET', `Welcome bonus received`, { amount: displayAmount, asset: FAUCET_NOTE_ASSET }).catch(() => {});
           }
         } catch (err) {
-          console.error('[kyc/link-wallet] faucet provisioning failed:', err);
+          logger.error({ err }, '[kyc/link-wallet] faucet provisioning failed');
         }
       })();
     }
 
     return res.json({ success: true, tier: 1, ...leaf, faucetPending: grantFaucet, faucetSecret });
   } catch (err) {
-    console.error('[kyc/link-wallet]', err);
+    logger.error({ err }, '[kyc/link-wallet]');
     return res.status(409).json({ error: 'Could not link wallet (it may already be linked).' });
   }
 });
@@ -159,7 +165,7 @@ router.get('/faucet-status', async (req, res) => {
     const leaf = await treeService.getLeaf(index);
     return res.json({ state: 'settled', leafIndex: index, circuitInput: leaf?.circuitInput ?? null });
   } catch (err) {
-    console.error('[kyc/faucet-status]', err);
+    logger.error({ err }, '[kyc/faucet-status]');
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -173,7 +179,7 @@ router.get('/faucet-status', async (req, res) => {
 // ComplianceAttestation, via issueLeaf below). `returnedName` is handed back in the response for
 // the frontend to cache client-side (session.name), exactly like the app already treats bank
 // details — it lives in the browser, not the database.
-router.post('/submit-bvn', async (req, res) => {
+router.post('/submit-bvn', bvnLimiter, async (req, res) => {
   const { email, bvn } = req.body;
   if (!email || typeof email !== 'string') return res.status(400).json({ error: 'email is required.' });
   if (!bvn || bvn.length !== 11 || !/^\d{11}$/.test(bvn)) {
@@ -198,7 +204,7 @@ router.post('/submit-bvn', async (req, res) => {
       ...leaf,
     });
   } catch (err) {
-    console.error('[kyc/submit-bvn]', err);
+    logger.error({ err }, '[kyc/submit-bvn]');
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -252,7 +258,7 @@ router.post('/reissue-salt', pinLimiter, async (req, res) => {
     const leaf = await issueLeaf(user.id, user.attestation.hardwareAttested, user.attestation.bvnVerified);
     return res.json({ success: true, bvnVerified: user.attestation.bvnVerified, ...leaf });
   } catch (err) {
-    console.error('[kyc/reissue-salt]', err);
+    logger.error({ err }, '[kyc/reissue-salt]');
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 });

@@ -7,6 +7,7 @@ import { makeWallet } from "../lib/smartAccount";
 import { humanizeError } from "@shieldpass/sdk/dist/errors";
 import { deriveSeedFromPassword, deriveIdentityFromSeed, enrollPasskeyUnlock } from "../lib/shieldedKey";
 import { unlockBankVault } from "../lib/bankVault";
+import { loginWithWeb3Auth } from "../lib/web3auth";
 import type { ShieldedIdentity } from "@shieldpass/sdk/dist/identity";
 
 import { AnimatedLayout } from "../components/ui/animated-characters-login-page";
@@ -32,14 +33,36 @@ export default function OnboardingPage() {
   const [stage, setStage] = useState<Stage>("info");
   const [email, setEmail] = useState("");
   const [pin, setPin] = useState("");
+  const [socialSub, setSocialSub] = useState<string | undefined>(undefined);
+  const [socialVerified, setSocialVerified] = useState(false);
+  const [socialBusy, setSocialBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // Welcome-bonus state for the done card. 'settling' = the faucet is confirming on-chain in the
   // background and will appear in the shielded balance once it's real (hide-until-settled).
   const [welcomeBonus, setWelcomeBonus] = useState<'settling' | null>(null);
 
-  const infoValid = /\S+@\S+\.\S+/.test(email) && /^\d{4,6}$/.test(pin);
+  // A social login (Web3Auth) just verifies an email; a manually-typed one still needs the
+  // usual format check. Either way a PIN/password is still required next — it's the seed
+  // material for the shielded identity (deriveSeedFromPassword), not just an auth factor.
+  const pinValid = /^\d{4,6}$/.test(pin) || pin.length >= 8;
+  const infoValid = (socialVerified || /\S+@\S+\.\S+/.test(email)) && pinValid;
 
   const [isTyping, setIsTyping] = useState(false);
+
+  async function continueWithSocial() {
+    setErrorMessage(null);
+    setSocialBusy(true);
+    try {
+      const { email: verifiedEmail, providerSub } = await loginWithWeb3Auth((idToken) => api.verifyWeb3Auth({ idToken }));
+      setEmail(verifiedEmail);
+      setSocialSub(providerSub);
+      setSocialVerified(true);
+    } catch (err) {
+      setErrorMessage(humanizeError(err).title);
+    } finally {
+      setSocialBusy(false);
+    }
+  }
 
   async function createPasskey() {
     setErrorMessage(null);
@@ -96,6 +119,7 @@ export default function OnboardingPage() {
         const linkRes = await api.linkWallet({
           email, pin, smartWalletAddress: res.contractId, passkeyKeyId: res.credentialId,
           shieldedOwner: identity.owner.toString(), shieldedEncPub: toHex(identity.encPublic), shieldedAddress: identity.address,
+          socialSub,
         });
         secretSalt = linkRes.secretSalt;
         merkleRoot = linkRes.merkleRoot;
@@ -160,8 +184,39 @@ export default function OnboardingPage() {
 
           {stage === "info" && (
             <motion.div variants={fadeUp} className="space-y-5 relative z-10">
-              <input className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} onFocus={() => setIsTyping(true)} onBlur={() => setIsTyping(false)} placeholder="you@example.com" />
-              <input className={inputCls} inputMode="numeric" maxLength={6} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} onFocus={() => setIsTyping(true)} onBlur={() => setIsTyping(false)} placeholder="Create a 4-6 digit PIN" />
+              <button
+                type="button"
+                onClick={continueWithSocial}
+                disabled={socialBusy || socialVerified}
+                className={socialVerified ? btnDisabled : "w-full font-semibold px-6 py-4 rounded-xl bg-white/10 hover:bg-white/15 text-white border border-white/10 transition-all cursor-pointer font-mono text-sm"}
+              >
+                {socialVerified ? `Signed in as ${email}` : socialBusy ? "Opening login…" : "Continue with Google / social / email"}
+              </button>
+
+              <div className="flex items-center gap-3 text-white/25 text-xs">
+                <div className="h-px flex-1 bg-white/10" /> OR <div className="h-px flex-1 bg-white/10" />
+              </div>
+
+              <input
+                className={inputCls}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onFocus={() => setIsTyping(true)}
+                onBlur={() => setIsTyping(false)}
+                placeholder="you@example.com"
+                disabled={socialVerified}
+              />
+              <input
+                className={inputCls}
+                type="password"
+                maxLength={64}
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
+                onFocus={() => setIsTyping(true)}
+                onBlur={() => setIsTyping(false)}
+                placeholder="4-6 digit PIN, or an 8+ character password"
+              />
               <button className={infoValid ? btnPrimary : btnDisabled} disabled={!infoValid} onClick={() => setStage("passkey")}>Continue</button>
             </motion.div>
           )}
@@ -202,13 +257,13 @@ export default function OnboardingPage() {
                   <div>
                     <dt className="mb-2 text-white/40 uppercase tracking-wider text-[10px]">Welcome bonus</dt>
                     <dd className="border border-white/5 bg-white/[0.01] p-3.5 rounded-lg text-white/80">
-                      500 XLM is confirming into your private shielded balance — it'll appear shortly.
+                      100 XLM is confirming into your private shielded balance — it'll appear shortly.
                     </dd>
                   </div>
                 )}
               </dl>
-              <button onClick={() => navigate("/swap")} className="mt-8 w-full font-semibold px-6 py-4 rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white shadow-lg shadow-green-500/20 hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer flex items-center justify-center gap-2">
-                Start Swapping
+              <button onClick={() => navigate("/dashboard")} className="mt-8 w-full font-semibold px-6 py-4 rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white shadow-lg shadow-green-500/20 hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer flex items-center justify-center gap-2">
+                Go to Dashboard
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
               </button>
             </motion.div>

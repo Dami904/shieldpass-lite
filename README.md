@@ -2,11 +2,13 @@
   <img src="./docs/assets/shieldpass_banner_1782226817707.png" alt="ShieldPass Banner" width="100%" />
 </p>
 
-# 🛡️ ShieldPass
+# 🛡️ Shieldpass-lite
 
 ### Ultimate Privacy: Trustless Crypto → Fiat Off-Ramp + Private Payments on Stellar
 
-ShieldPass is a private cross-border remittance corridor. It lets anyone swap crypto for Nigerian naira **instantly**, paid straight to their bank account — **without ever exposing their identity or banking data on-chain** — and send funds **privately to other users**, where the amount, sender, and receiver stay hidden.
+Shieldpass-lite is a private cross-border remittance corridor, forked from the original ShieldPass with a simplified flow: **every deposit shields automatically** (no manual Shield step), and sending decides for itself whether to stay private or go public based on the recipient. It lets anyone swap crypto for Nigerian naira **instantly**, paid straight to their bank account — **without ever exposing their identity or banking data on-chain** — and send funds **privately to other users**, where the amount, sender, and receiver stay hidden.
+
+> Shieldpass-lite deploys its **own** Shielded Pool contracts and relayer wallet — it never shares on-chain state with the original ShieldPass app. Each backend keeps its own off-chain mirror of the pool's merkle tree, so two independent deployments writing to the same contract would silently diverge.
 
 Your crypto lives in a **Shielded Pool**, not a standard escrow. You prove ownership and compliance with **zero-knowledge proofs** generated locally on your device, and the **smart contract verifies every proof on-chain** using Stellar's native BN254 pairing functions. The chain only ever sees mathematics — never your BVN, name, or bank details.
 
@@ -58,17 +60,17 @@ Traditional off-ramps force you to upload your identity, trust a custodian with 
 
 ## 🔄 How the App Works (Step-by-Step)
 
-Meet **Tobi**, who wants to use ShieldPass:
+Meet **Tobi**, who wants to use Shieldpass-lite:
 
-**1. Onboard (invisible funding).** Tobi signs up with a Passkey (Face ID). His **shielded identity** (spending + encryption keys) is derived from the passkey itself. ShieldPass mints him a secret **note** worth 500 XLM — no public transaction happens. To the outside world, his wallet holds $0.
+**1. Onboard (invisible funding).** Tobi signs up with Google/social/email (Web3Auth) or a manually-typed email, then secures the account with a Passkey (Face ID). His **shielded identity** (spending + encryption keys) is derived from the passkey itself. Shieldpass-lite mints him a secret **note** worth 100 XLM — no public transaction happens. To the outside world, his wallet holds $0.
 
-**2. Shield / Unshield.** Tobi can move his own crypto — **XLM or USDC** — **into** the private pool (Shield) or pull it back **out** to his wallet (Unshield) at any time.
+**2. Auto-shield.** There's no manual "Shield" button — any XLM/USDC that lands in Tobi's public wallet is detected and shielded automatically (one passkey confirmation per deposit). Nothing sits in the open for long.
 
 **3. Withdraw to Naira.** Tobi cashes out 100 XLM. On his phone a ZK proof spends his note, mints a 400 XLM change note, and authorizes the contract. The backend pays his bank via Paystack/Lenco; the change stays private.
 
-**4. Send privately.** Tobi sends 50 XLM to a friend by **email or `shp_` address**. A `shielded_transfer` proof moves the value inside the pool — **fully private**. His friend's app scans, decrypts the note, and their shielded balance just goes up. A 🔔 notification fires.
+**4. Send — private or public, decided automatically.** Tobi sends 50 XLM to a friend by **email or `shp_` address** — a `shielded_transfer` proof moves the value inside the pool, **fully private**. His friend's app scans, decrypts the note, and their shielded balance just goes up. Sending to a raw `G…`/`C…` wallet address instead unshields it on arrival — the Send tab picks whichever the recipient string implies, with no separate toggle. A 🔔 notification fires either way.
 
-**5. Stay informed.** Every action — faucet, shield, unshield, withdraw, send, and **received payments** — lands in an in-app **Activity feed** with an unread badge.
+**5. Stay informed.** Every action — faucet, auto-shield, withdraw, send, and **received payments** — lands in an in-app **Activity feed** with an unread badge.
 
 ---
 
@@ -159,9 +161,11 @@ No seed phrases, no extensions, no XLM required. Each user gets an **OpenZeppeli
 ## 📡 Deployment
 
 * **Network:** Stellar / Soroban **testnet**
-* **XLM Shielded Pool:** [`CBHGVQ7UH4C47LFUYFFKZMRI7AYUQ4TGYNIKX37KFKGBFGECKQM7BEG5`](https://stellar.expert/explorer/testnet/contract/CBHGVQ7UH4C47LFUYFFKZMRI7AYUQ4TGYNIKX37KFKGBFGECKQM7BEG5) — token: native XLM SAC
-* **USDC Shielded Pool:** [`CCRQD3ALTYX5GMSQA5GDN65CF3DPLLHPWOOKHQOKRDO3JNK3FVYDM7ZP`](https://stellar.expert/explorer/testnet/contract/CCRQD3ALTYX5GMSQA5GDN65CF3DPLLHPWOOKHQOKRDO3JNK3FVYDM7ZP) — token: testnet USDC SAC
+* **XLM Shielded Pool:** [`CANMADBDELNOAPKPNXOYB2TVRYCY4CR4LWIYVCYR6WSVMKOUK3SQJIMT`](https://stellar.expert/explorer/testnet/contract/CANMADBDELNOAPKPNXOYB2TVRYCY4CR4LWIYVCYR6WSVMKOUK3SQJIMT) — token: native XLM SAC
+* **USDC Shielded Pool:** [`CCOCHYWMEWYQ53UFHWIACXLSFIUOD73SXL7FQ3GIAVDS7R6IV5LT6WPA`](https://stellar.expert/explorer/testnet/contract/CCOCHYWMEWYQ53UFHWIACXLSFIUOD73SXL7FQ3GIAVDS7R6IV5LT6WPA) — token: testnet USDC SAC
 * **Wallets:** OpenZeppelin smart-account-kit, shared pre-deployed account wasm + WebAuthn verifier on testnet (gasless submission via OpenZeppelin Channels)
+
+> These are Shieldpass-lite's own contracts and relayer wallet — deployed and funded independently of the original ShieldPass app's pools (see the warning at the top of this README for why they can never be shared).
 
 ---
 
@@ -175,6 +179,14 @@ cd backend && npm install && npx prisma generate && npm run dev   # http://local
 
 # Frontend
 cd frontend && npm install && npm run dev                          # http://localhost:5173
+```
+
+**Running backend tests:** the test suite hits a real (migrated) Postgres — there's no mock/in-memory
+DB. Before the first `npm test`, push the schema once:
+
+```bash
+cd backend && npm run db:setup   # prisma generate + prisma db push against NEON_CONNECTION_STRING
+npm test
 ```
 
 Build & test the Soroban Shielded Pool:
@@ -204,12 +216,33 @@ Key environment variables:
 | `backend/.env` | `CHANNELS_URL` / `CHANNELS_API_KEY` | OpenZeppelin Channels — required for gasless smart-account submission |
 | `backend/.env` | `CORS_ORIGIN` | Comma-separated allowed frontend origin(s); unset = allow all (dev only) |
 | `backend/.env` | `PAYSTACK_SECRET_KEY` / `LENCO_*` | Naira payout providers |
-| `backend/.env` | `FAUCET_NOTE_AMOUNT` / `FAUCET_NOTE_ASSET` | Onboarding seed note (defaults `500` / `XLM`) |
+| `backend/.env` | `FAUCET_NOTE_AMOUNT` / `FAUCET_NOTE_ASSET` | Onboarding seed note (defaults `100` / `XLM`) |
 | `backend/.env` | `SEED_TOKENS` | Fallback public-funding for brand-new smart wallets (comma-separated `contractId:amount`) |
+| `backend/.env` | `WEB3AUTH_CLIENT_ID` / `WEB3AUTH_JWKS_URL` | Verifies the Web3Auth (Google/social/email) login idToken — must match the frontend's `VITE_WEB3AUTH_CLIENT_ID` |
 | `frontend/.env` | `VITE_API_URL` | Backend URL (powers swaps, transfers, scanning, notifications) |
+| `frontend/.env` | `VITE_WEB3AUTH_CLIENT_ID` | Project client id from the [Web3Auth dashboard](https://dashboard.web3auth.io) — the "Continue with Google / social / email" button throws until this is set |
 | `frontend/.env` | `VITE_ACCOUNT_WASM_HASH` / `VITE_WEBAUTHN_VERIFIER_ADDRESS` | smart-account-kit account wasm + WebAuthn verifier contract |
 | `frontend/.env` | `VITE_XLM_POOL_CONTRACT_ID` / `VITE_USDC_POOL_CONTRACT_ID` | Per-asset Shielded Pool contract ids |
 | `frontend/.env` | `VITE_XLM_SAC` / `VITE_USDC_SAC` | Per-asset SAC addresses (drives which assets show up in the UI) |
+
+---
+
+## ✅ Going live checklist (Render + Vercel)
+
+`render.yaml` and `vercel.json` handle the build/deploy mechanics, but a few values are
+deliberately `sync: false` (kept out of the repo) and must be set by hand in each dashboard
+before a real deploy will actually work:
+
+- [ ] **Web3Auth project** — create one at [dashboard.web3auth.io](https://dashboard.web3auth.io),
+      set `VITE_WEB3AUTH_CLIENT_ID` in Vercel and `WEB3AUTH_CLIENT_ID` in Render to the same id.
+- [ ] **Render dashboard secrets** — `NEON_CONNECTION_STRING`, `STELLAR_CONTRACT_ID`,
+      `STELLAR_RELAYER_SECRET`, `CORS_ORIGIN`, `CHANNELS_API_KEY`, `PAYSTACK_SECRET_KEY`. The two
+      Stellar values must be Shieldpass-lite's **own** pool/relayer, never copied from another
+      deployment of this codebase.
+- [ ] **Vercel env vars** — `VITE_API_URL` (pointing at the Render backend), plus the contract/SAC
+      vars from the table above.
+- [ ] **CORS_ORIGIN** — once the Vercel URL is known, set it on the Render service so the API
+      isn't wide open to any origin.
 
 ---
 

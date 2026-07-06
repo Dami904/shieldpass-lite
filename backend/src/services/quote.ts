@@ -5,6 +5,7 @@
  * The fiat quote is public off-ramp data, recalculated by the backend at execution time
  * instead of trusted from the browser.
  */
+import { logger } from '../logger';
 
 const PRICE_TTL_MS = Number(process.env.SWAP_PRICE_TTL_MS || 60_000);
 const PRICE_TIMEOUT_MS = Number(process.env.SWAP_PRICE_TIMEOUT_MS || 2500);
@@ -98,7 +99,7 @@ async function fetchLiveRates(): Promise<Map<string, RateEntry>> {
     liveCache = { expiresAt: now + PRICE_TTL_MS, rates };
     return rates;
   } catch (err) {
-    console.warn('[quote] live price unavailable, using fallback rates:', err);
+    logger.warn({ err }, '[quote] live price unavailable, using fallback rates');
     liveCache = { expiresAt: now + 10_000, rates: new Map() };
     return liveCache.rates;
   } finally {

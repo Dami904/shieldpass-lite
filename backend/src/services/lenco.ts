@@ -1,4 +1,5 @@
 import { fiatMode, fiatModeError } from './fiatMode';
+import { logger } from '../logger';
 
 /**
  * Lenco Business Banking outward NGN payouts.
@@ -36,7 +37,7 @@ export async function initiateTransfer(input: LencoTransferInput): Promise<Lenco
 
   if (mode === 'mock') {
     const transferId = `mock_lenco_${input.reference}_${Date.now()}`;
-    console.log(`[lenco] MOCK transfer NGN ${input.amountNaira} -> ${input.bankName} ${input.accountNumber} (${input.accountName})`);
+    logger.info({ amountNaira: input.amountNaira, bankName: input.bankName, accountNumber: input.accountNumber }, '[lenco] MOCK transfer');
     return { ok: true, transferId, status: 'successful' };
   }
 

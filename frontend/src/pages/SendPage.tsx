@@ -9,31 +9,12 @@ import QrScanner from "../components/QrScanner";
 import { useSwapProof } from "../lib/useSwapProof";
 import { useShieldedTransfer } from "../lib/useShieldedTransfer";
 import ErrorNotice from "../components/ErrorNotice";
-import { PUBLIC_ASSETS, assetByCode, formatUnits, parseUnits } from "../lib/assets";
-import { useWalletBalance } from "../lib/useWalletBalance";
+import { assetByCode, formatUnits, parseUnits } from "../lib/assets";
 import { useInsertProof } from "../lib/useInsertProof";
 import { encryptNote } from "@shieldpass/sdk/dist/identity";
-import { StellarContractClient, addressToField } from "@shieldpass/sdk/dist/stellar";
+import { addressToField } from "@shieldpass/sdk/dist/stellar";
+import { isAddr, isShp, isShieldPassUser, recipientFromScan } from "../lib/recipient";
 
-const RPC_URL = import.meta.env.VITE_RPC_URL || "https://soroban-testnet.stellar.org";
-
-const isAddr = (value: string) => /^[GC][A-Z2-7]{55}$/.test(value);
-const isEmail = (value: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
-const isShp = (value: string) => value.startsWith("shp_");
-const isShieldPassUser = (value: string) => isEmail(value) || isShp(value);
-
-// A scanned QR may be a deep link (…/send?to=shp_…) or a raw shp_/email/address.
-// Pull the recipient out of either form.
-function recipientFromScan(raw: string): string {
-  const t = raw.trim();
-  try {
-    const to = new URL(t).searchParams.get("to");
-    if (to) return to.trim();
-  } catch {
-    /* not a URL — fall through */
-  }
-  return t;
-}
 const buf = (u8: Uint8Array): Buffer => Buffer.from(u8);
 
 function randomField(): string {
@@ -49,18 +30,15 @@ const fadeUp = {
   visible: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] as any } },
 };
 
-type Source = "available" | "shielded";
-
 export default function SendPage() {
   const session = useSession();
   const swapProof = useSwapProof(import.meta.env.VITE_API_URL as string);
   const transfer = useShieldedTransfer(import.meta.env.VITE_API_URL as string);
   const { insertProof } = useInsertProof();
 
-  const [source, setSource] = useState<Source>("available");
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
-  const [assetCode, setAssetCode] = useState<string>(PUBLIC_ASSETS[0]?.code ?? "XLM");
+  const [assetCode, setAssetCode] = useState<string>("XLM");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState<unknown>(null);
@@ -68,65 +46,30 @@ export default function SendPage() {
   const [scanOpen, setScanOpen] = useState(false);
   const [searchParams] = useSearchParams();
 
-  // Deep link: a scanned "Receive privately" QR opens …/send?to=shp_… — prefill the
-  // recipient and switch to the shielded (private) tab so the send stays private.
+  // Deep link: a scanned "Receive privately" QR opens …/send?to=shp_… — prefill the recipient.
   useEffect(() => {
     const to = searchParams.get("to");
-    if (to) {
-      setRecipient(to);
-      setSource("shielded");
-    }
+    if (to) setRecipient(to);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const isShielded = source === "shielded";
   const shieldedAssets = Array.from(new Set(session.notes.map((n) => n.asset || "XLM")));
+
+  // Keep the selected asset pinned to one the user actually holds shielded balance in.
+  useEffect(() => {
+    if (shieldedAssets.length > 0 && !shieldedAssets.includes(assetCode)) {
+      setAssetCode(shieldedAssets[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.notes]);
+
   const selectedAsset = assetByCode(assetCode);
   const short = (value: string) => `${value.slice(0, 6)}...${value.slice(-4)}`;
 
-  const { balance: walletBalance, loading: walletLoading } = useWalletBalance(
-    isShielded ? "" : assetCode,
-    session.address,
-  );
   const shieldedTotal = session.notes
     .filter((n) => (n.asset || "XLM") === assetCode)
     .reduce((sum, n) => sum + BigInt(n.amount), 0n);
   const shieldedBalanceStr = formatUnits(shieldedTotal, selectedAsset?.decimals ?? 7, 4);
-
-  function switchSource(next: Source) {
-    if (busy) return;
-    setSource(next);
-    if (next === "shielded" && shieldedAssets.length > 0) setAssetCode(shieldedAssets[0]);
-    if (next === "available" && PUBLIC_ASSETS.length > 0) setAssetCode(PUBLIC_ASSETS[0].code);
-    setError(null);
-    setSuccess(null);
-    setAmount("");
-  }
-
-  async function sendAvailable(to: string) {
-    const asset = PUBLIC_ASSETS.find((a) => a.code === assetCode);
-    if (!asset) throw new Error("Asset not configured.");
-    const units = parseUnits(amount, asset.decimals);
-    if (units <= 0n) throw new Error("Amount must be greater than zero.");
-    // Balance guard: the SAC transfer would otherwise fail silently on-chain (e.g. sending
-    // USDC the wallet doesn't hold), and we'd wrongly show "Sent". Check first.
-    const net = (import.meta.env.VITE_NETWORK_PASSPHRASE as string) || "Test SDF Network ; September 2015";
-    const balanceClient = new StellarContractClient(RPC_URL, net, asset.sac);
-    let available: bigint;
-    try {
-      available = await balanceClient.getTokenBalance(asset.sac, session.address!);
-    } catch {
-      available = -1n; // balance check unavailable — don't block the send on a read failure
-    }
-    if (available >= 0n && units > available) {
-      throw new Error(`Insufficient ${asset.code}: you have ${formatUnits(available, asset.decimals, 4)} but tried to send ${formatUnits(units, asset.decimals, 4)}.`);
-    }
-    // Use transferToken instead of invoke — native SACs (XLM etc.) have no uploadable
-    // Wasm, so contract.Client.from() crashes. transferToken builds XDR directly.
-    const sendRes = await session.wallet!.transferToken(asset.sac, to, units);
-    setSuccess({ message: `Sent ${formatUnits(units, asset.decimals, 4)} ${asset.code} to ${short(to)}.`, txHash: sendRes.hash });
-    api.notify({ email: session.email, type: "SEND_PUBLIC", title: "Sent", amount: formatUnits(units, asset.decimals, 4), asset: asset.code, txHash: sendRes.hash }).catch(() => {});
-  }
 
   async function sendShielded(to: string) {
     if (!selectedAsset) throw new Error("Asset not configured.");
@@ -219,16 +162,15 @@ export default function SendPage() {
       return;
     }
 
-    const validRecipient = isShielded ? (isAddr(to) || isShieldPassUser(to)) : isAddr(to);
+    const validRecipient = isAddr(to) || isShieldPassUser(to);
     if (!validRecipient) {
-      setError(new Error(isShielded ? "Enter a Stellar address, an email, or a shp_ address." : "Enter a valid Stellar address (G... or C...)."));
+      setError(new Error("Enter a Stellar address, an email, or a shp_ address."));
       return;
     }
 
     try {
       setBusy(true);
-      if (isShielded) await sendShielded(to);
-      else await sendAvailable(to);
+      await sendShielded(to);
       setAmount("");
       setRecipient("");
     } catch (err) {
@@ -249,20 +191,8 @@ export default function SendPage() {
             Send
           </h1>
           <p className="text-white/40 text-sm mt-2 font-light">
-            Send to any Stellar address - from your public wallet or privately from your shielded balance.
+            Every send is private by default, from your shielded balance.
           </p>
-        </motion.div>
-
-        <motion.div variants={fadeUp} className="flex p-1 mb-6 rounded-xl border border-white/10 bg-white/[0.02]">
-          {(["available", "shielded"] as Source[]).map((item) => (
-            <button
-              key={item}
-              onClick={() => switchSource(item)}
-              className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-colors ${source === item ? "bg-indigo-600 text-white" : "text-white/50 hover:text-white/80"}`}
-            >
-              {item === "available" ? "From Available" : "From Shielded"}
-            </button>
-          ))}
         </motion.div>
 
         <div className="space-y-6">
@@ -295,7 +225,7 @@ export default function SendPage() {
                   onChange={(e) => setAssetCode(e.target.value)}
                   className="mt-2 w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-500/40 transition-colors"
                 >
-                  {(isShielded ? shieldedAssets : PUBLIC_ASSETS.map((a) => a.code)).map((code) => (
+                  {shieldedAssets.map((code) => (
                     <option key={code} value={code} className="bg-neutral-900">
                       {code}
                     </option>
@@ -309,19 +239,17 @@ export default function SendPage() {
                   <input
                     value={recipient}
                     onChange={(e) => setRecipient(e.target.value)}
-                    placeholder={isShielded ? "email, shp_… (private) or G…/C… (public)" : "G... or C..."}
-                    className={`w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-mono outline-none focus:border-indigo-500/40 transition-colors ${isShielded ? "pr-11" : ""}`}
+                    placeholder="email, shp_… (private) or G…/C… (public)"
+                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-mono outline-none focus:border-indigo-500/40 transition-colors pr-11"
                   />
-                  {isShielded && (
-                    <button
-                      type="button"
-                      onClick={() => setScanOpen(true)}
-                      title="Scan a ShieldPass QR"
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors"
-                    >
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m4-8h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setScanOpen(true)}
+                    title="Scan a ShieldPass QR"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m4-8h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg>
+                  </button>
                 </div>
               </div>
 
@@ -329,20 +257,14 @@ export default function SendPage() {
                 <div className="flex items-baseline justify-between">
                   <label className="text-white/40 text-xs font-mono tracking-wider uppercase">Amount ({assetCode})</label>
                   <span className="text-[11px] text-white/35">
-                    {isShielded
-                      ? `Shielded: ${shieldedBalanceStr} ${assetCode}`
-                      : walletLoading
-                      ? "Loading balance…"
-                      : walletBalance != null
-                      ? `Available: ${walletBalance} ${assetCode}`
-                      : null}
+                    {`Shielded: ${shieldedBalanceStr} ${assetCode}`}
                   </span>
                 </div>
                 <input
                   type="number"
                   min="0"
-                  step={isShielded ? "1" : "any"}
-                  inputMode={isShielded ? "numeric" : "decimal"}
+                  step="1"
+                  inputMode="numeric"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="0"
@@ -351,41 +273,34 @@ export default function SendPage() {
               </div>
 
               <div className="text-white/35 text-xs leading-relaxed border border-white/5 bg-white/[0.01] rounded-xl p-3">
-                {isShielded ? (
-                  isShieldPassUser(recipient.trim()) ? (
-                    <>
-                      <span className="text-emerald-300/80">Fully private.</span> Sending to a ShieldPass {isShp(recipient.trim()) ? "shp_ address" : "email"} — the recipient receives a <span className="text-white/70">shielded note</span>, private on both ends.
-                    </>
-                  ) : (
-                    <>
-                      You spend a private note - <span className="text-white/70">nobody can trace which deposit it came from</span> - but sending to a plain wallet address <span className="text-amber-300/80">unshields it (the recipient gets public crypto)</span>. To keep it fully private, use their <span className="text-white/70">email or shp_ address</span>.
-                    </>
-                  )
+                {isShieldPassUser(recipient.trim()) ? (
+                  <>
+                    <span className="text-emerald-300/80">Fully private.</span> Sending to a ShieldPass {isShp(recipient.trim()) ? "shp_ address" : "email"} — the recipient receives a <span className="text-white/70">shielded note</span>, private on both ends.
+                  </>
                 ) : (
                   <>
-                    A normal <span className="text-white/70">public</span> on-chain transfer from your wallet. To send privately, switch to <span className="text-white/70">From Shielded</span>.
+                    You spend a private note - <span className="text-white/70">nobody can trace which deposit it came from</span> - but sending to a plain wallet address <span className="text-amber-300/80">unshields it (the recipient gets public crypto)</span>. To keep it fully private, use their <span className="text-white/70">email or shp_ address</span>.
                   </>
                 )}
               </div>
 
-              {isShielded && <ShieldedKeyGate />}
+              <ShieldedKeyGate />
 
               <QrScanner
                 open={scanOpen}
                 onClose={() => setScanOpen(false)}
                 onResult={(text) => {
                   setRecipient(recipientFromScan(text));
-                  setSource("shielded");
                   setScanOpen(false);
                 }}
               />
 
               <button
                 onClick={handleSend}
-                disabled={busy || !amount || !recipient || (session.onboarded && !session.wallet) || (isShielded && !session.identity)}
+                disabled={busy || !amount || !recipient || (session.onboarded && !session.wallet) || !session.identity}
                 className="w-full py-3.5 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                {busy ? (proving ? "Generating proof..." : status || "Sending...") : (isShielded ? "Send privately" : "Send")}
+                {busy ? (proving ? "Generating proof..." : status || "Sending...") : "Send privately"}
               </button>
             </motion.div>
         </div>

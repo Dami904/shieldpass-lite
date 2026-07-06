@@ -1,4 +1,5 @@
 import { fiatMode, fiatModeError } from './fiatMode';
+import { logger } from '../logger';
 
 /**
  * Paystack outward NGN payouts.
@@ -35,7 +36,7 @@ export async function initiatePaystackTransfer(input: FiatTransferInput): Promis
 
   if (mode === 'mock') {
     const transferId = `mock_paystack_${input.reference}_${Date.now()}`;
-    console.log(`[paystack] MOCK transfer NGN ${input.amountNaira} -> ${input.bankName} ${input.accountNumber}`);
+    logger.info({ amountNaira: input.amountNaira, bankName: input.bankName, accountNumber: input.accountNumber }, '[paystack] MOCK transfer');
     return { ok: true, transferId, status: 'successful' };
   }
 

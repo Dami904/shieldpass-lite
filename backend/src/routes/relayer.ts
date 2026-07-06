@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { checkProof, burnNullifier } from '../services/compliance';
 import { prisma } from '../db';
+import { logger } from '../logger';
 
 const router = Router();
 
@@ -22,7 +23,7 @@ router.post('/submit-proof', async (req, res) => {
 
   const check = await checkProof({ proof, publicInputs, nullifier });
   if (!check.ok) return res.status(check.status).json({ error: check.error });
-  console.log(`[Relayer] ZK Proof Verified for ${walletAddress}.`);
+  logger.info({ walletAddress }, '[Relayer] ZK Proof Verified');
 
   // Proof is valid — record it and burn the nullifier so it can never be replayed.
   const txHash = `verified_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -37,7 +38,7 @@ router.post('/submit-proof', async (req, res) => {
       transaction,
     });
   } catch (err) {
-    console.error('[Relayer] DB write failed:', err);
+    logger.error({ err }, '[Relayer] DB write failed');
     return res.status(500).json({ error: 'Internal Server Error.' });
   }
 });

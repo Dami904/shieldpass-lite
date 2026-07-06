@@ -44,14 +44,20 @@ services:
         value: CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
       - key: USDC_SAC_ADDRESS
         value: CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA
-      # USDC shielded pool (enables shielded USDC). Non-secret contract id.
+      # USDC shielded pool (enables shielded USDC). Non-secret contract id — Shieldpass-lite's
+      # own pool, deployed and funded separately from the original ShieldPass app's pools (they
+      # must never share a pool contract: each backend keeps its own off-chain mirror of the
+      # tree in Postgres, so two independent backends writing to the same pool would diverge).
       - key: USDC_POOL_CONTRACT_ID
-        value: CCRQD3ALTYX5GMSQA5GDN65CF3DPLLHPWOOKHQOKRDO3JNK3FVYDM7ZP
+        value: CCOCHYWMEWYQ53UFHWIACXLSFIUOD73SXL7FQ3GIAVDS7R6IV5LT6WPA
       # Set to the deployed frontend origin(s), comma-separated (e.g. https://shieldpass.vercel.app).
       # Left unset here since it depends on your Vercel deployment; set it in the Render dashboard.
       - key: CORS_ORIGIN
         sync: false
-      # Secrets — set these in the Render dashboard (sync: false keeps them out of the repo)
+      # Secrets — set these in the Render dashboard (sync: false keeps them out of the repo).
+      # STELLAR_CONTRACT_ID (XLM pool) and STELLAR_RELAYER_SECRET must be Shieldpass-lite's own
+      # fresh values (see backend/.env, which is git-ignored) — never the original ShieldPass
+      # app's relayer key, for the same reason as the USDC pool above.
       - key: NEON_CONNECTION_STRING
         sync: false
       - key: STELLAR_CONTRACT_ID

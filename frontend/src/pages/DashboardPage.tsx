@@ -6,10 +6,10 @@ import { useSession } from "../lib/session";
 import ErrorNotice from "../components/ErrorNotice";
 import ShieldedBalance from "../components/ShieldedBalance";
 import ReceiveModal from "../components/ReceiveModal";
-import type { Balance, SwapRecord } from "../types";
-import { PUBLIC_ASSETS, assetByCode, assetLabel, formatUnits } from "../lib/assets";
-
-const RPC_URL = "https://soroban-testnet.stellar.org";
+import type { SwapRecord } from "../types";
+import { assetByCode, assetLabel, formatUnits } from "../lib/assets";
+import { useAutoShield } from "../lib/useAutoShield";
+import { useInsertProof } from "../lib/useInsertProof";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 30, filter: "blur(6px)", scale: 0.98 },
@@ -17,50 +17,40 @@ const fadeUp = {
 };
 const stagger = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.1, delayChildren: 0.15 } } };
 
-const getAssetTheme = (assetCode: string) => {
-  const code = assetCode.toUpperCase();
-  if (code.includes("USD")) return { bg: "bg-cyan-500/10 border-cyan-500/25", glow: "bg-cyan-500/10", text: "text-cyan-400" };
-  if (code.includes("NGN")) return { bg: "bg-emerald-500/10 border-emerald-500/25", glow: "bg-emerald-500/10", text: "text-emerald-400" };
-  return { bg: "bg-primary/10 border-primary/25", glow: "bg-primary/10", text: "text-primary" };
-};
-
 export default function DashboardPage() {
   const session = useSession();
   const address = session.address;
   const email = session.email;
 
-  const [balances, setBalances] = useState<Balance[]>([]);
-  const [balancesLoading, setBalancesLoading] = useState(false);
-  const [balancesError, setBalancesError] = useState<unknown>(null);
-
   const [history, setHistory] = useState<SwapRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<unknown>(null);
 
-  useEffect(() => {
-    if (!address) return;
+  // Lite has no manual "Shield" button — anything that lands in the public wallet is shielded
+  // automatically (one passkey confirmation per deposit, no other step).
+  const { insertProof } = useInsertProof();
+  const { autoShieldStatus } = useAutoShield(session, insertProof);
 
-    setBalancesLoading(true);
-    setBalancesError(null);
-    (async () => {
-      try {
-        const { StellarContractClient } = await import("@shieldpass/sdk/dist/stellar");
-        const { Networks } = await import("@stellar/stellar-sdk");
-        const configured = PUBLIC_ASSETS;
-        const out: Balance[] = [];
-        for (const t of configured) {
-          const client = new StellarContractClient(RPC_URL, Networks.TESTNET, t.sac as string);
-          const raw = await client.getTokenBalance(t.sac as string, address);
-          out.push({ assetCode: t.code, balance: formatUnits(raw, t.decimals, 4) });
-        }
-        setBalances(out);
-      } catch (err) {
-        setBalancesError(err);
-      } finally {
-        setBalancesLoading(false);
-      }
-    })();
-  }, [address]);
+  // Proactive BVN card: SwapPage still gates this behind a large-swap threshold, but Lite also
+  // lets anyone verify upfront from the dashboard so they're never interrupted mid-swap.
+  const [bvn, setBvn] = useState("");
+  const [bvnError, setBvnError] = useState<string | null>(null);
+  const [verifyingBvn, setVerifyingBvn] = useState(false);
+
+  async function handleBvnVerify() {
+    setBvnError(null);
+    if (!/^\d{11}$/.test(bvn)) { setBvnError("Enter a valid 11-digit BVN."); return; }
+    try {
+      setVerifyingBvn(true);
+      const r = await api.submitBvn({ email: session.email, bvn });
+      session.set({ name: r.returnedName, secretSalt: r.secretSalt, merkleRoot: r.merkleRoot, bvnVerified: true });
+      setBvn("");
+    } catch (err: any) {
+      setBvnError(err.message || "Verification failed.");
+    } finally {
+      setVerifyingBvn(false);
+    }
+  }
 
   const [copied, setCopied] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
@@ -101,6 +91,16 @@ export default function DashboardPage() {
           </div>
         </motion.div>
         <ReceiveModal open={receiveOpen} onClose={() => setReceiveOpen(false)} />
+
+        {autoShieldStatus && (
+          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="mb-8 flex items-center gap-3 border border-indigo-500/20 bg-indigo-500/[0.04] text-indigo-200 text-sm px-5 py-3.5 rounded-2xl">
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-400" />
+            </span>
+            {autoShieldStatus}
+          </motion.div>
+        )}
 
         <motion.div variants={fadeUp} className="mb-12">
           <div className="bg-gradient-to-br from-blue-900/30 to-indigo-900/20 backdrop-blur-xl rounded-3xl p-6 flex flex-col sm:flex-row items-center justify-between gap-6 border border-blue-500/20 shadow-2xl">
@@ -145,31 +145,37 @@ export default function DashboardPage() {
 
             <motion.section variants={fadeUp}>
               <h2 className="geist-heading text-xl sm:text-2xl mb-4 sm:mb-6 flex items-center gap-3 text-white font-medium">
-                <svg className="w-5 h-5 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
-                Available Balance (Wallet)
+                <svg className="w-5 h-5 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                Identity Verification
               </h2>
-              {balancesLoading && <div className="flex items-center gap-3 text-white/50 text-sm border border-white/10 bg-white/5 p-6 rounded-2xl">Reading token contracts…</div>}
-              {balancesError ? <ErrorNotice error={balancesError} className="border border-red-500/20 bg-red-500/[0.02] p-6 rounded-2xl" /> : null}
-              {!balancesLoading && !balancesError && (
-                <div className="grid sm:grid-cols-2 gap-5">
-                  {balances.length === 0 ? (
-                    <div className="bg-white/5 backdrop-blur-md rounded-2xl p-8 text-center col-span-2 border border-white/10"><p className="text-white/50 text-sm">No token balances configured. Set VITE_XLM_SAC / VITE_USDC_SAC / VITE_NGNC_SAC.</p></div>
-                  ) : (
-                    balances.map((b) => {
-                      const theme = getAssetTheme(b.assetCode);
-                      return (
-                        <motion.div key={b.assetCode} variants={fadeUp} whileHover={{ y: -3, scale: 1.01 }} className={`bg-gradient-to-br from-blue-900/30 to-indigo-900/20 backdrop-blur-xl rounded-3xl p-6 sm:p-8 border ${theme.bg} relative overflow-hidden shadow-2xl`}>
-                          <div className={`absolute top-0 right-0 w-36 h-36 ${theme.glow} rounded-full blur-[40px] pointer-events-none -mr-10 -mt-10`} />
-                          <p className="font-mono text-xs text-white/50 mb-3 uppercase tracking-widest font-semibold">{b.assetCode} Vault</p>
-                          <p className="geist-heading text-3xl sm:text-4xl font-light text-white">{b.balance}</p>
-                          <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3">
-                            <span className="text-[10px] font-mono text-white/40 uppercase tracking-widest">SAC Balance</span>
-                            <span className={`w-2 h-2 rounded-full ${theme.text} bg-current animate-pulse`} />
-                          </div>
-                        </motion.div>
-                      );
-                    })
-                  )}
+              {session.bvnVerified ? (
+                <div className="bg-gradient-to-br from-emerald-900/20 to-emerald-800/10 backdrop-blur-xl border border-emerald-500/20 rounded-3xl p-6 flex items-center gap-3 text-emerald-300 text-sm">
+                  <span className="relative flex h-3 w-3 shrink-0">
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-400" />
+                  </span>
+                  Tier 2 verified — high-value swaps are unlocked, no BVN prompt will interrupt you again.
+                </div>
+              ) : (
+                <div className="bg-gradient-to-br from-blue-900/30 to-indigo-900/20 backdrop-blur-xl border border-blue-500/20 shadow-2xl rounded-3xl p-6 space-y-4">
+                  <p className="text-white/50 text-xs leading-relaxed">
+                    Optional — verify your BVN now to unlock high-value swaps upfront, instead of being asked mid-swap later. Only a pass/fail flag is stored; your name and BVN are never saved.
+                  </p>
+                  {bvnError && <p className="text-red-400 text-xs">{bvnError}</p>}
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <input
+                      type="text" maxLength={11} value={bvn}
+                      onChange={(e) => setBvn(e.target.value.replace(/\D/g, ""))}
+                      placeholder="11-digit BVN"
+                      className="flex-1 bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-mono outline-none focus:border-indigo-500/40 transition-colors"
+                    />
+                    <button
+                      onClick={handleBvnVerify}
+                      disabled={verifyingBvn || bvn.length !== 11}
+                      className="px-6 py-3 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                    >
+                      {verifyingBvn ? "Verifying…" : "Verify BVN"}
+                    </button>
+                  </div>
                 </div>
               )}
             </motion.section>

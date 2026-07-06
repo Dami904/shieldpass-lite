@@ -4,13 +4,13 @@ import { ShieldedPoolClient } from '@shieldpass/sdk';
 import { Prisma } from '../generated/prisma/client';
 import { prisma } from '../db';
 import { burnNullifier } from '../services/compliance';
-import { treeServiceFor } from '../services/tree';
-import { poolIdForAsset, defaultPoolId } from '../services/pools';
+import { poolIdForAsset } from '../services/pools';
 import { notify } from './notifications';
 import { getQuote, TIER2_THRESHOLD_NAIRA, type Quote } from '../services/quote';
 import { initiateTransfer as initiateLencoTransfer, resolveAccount, getBanks, type LencoTransferResult } from '../services/lenco';
 import { initiatePaystackTransfer } from '../services/paystack';
 import { accountLookupLimiter } from '../middleware/rateLimit';
+import { logger } from '../logger';
 
 const router = Router();
 
@@ -61,7 +61,7 @@ router.get('/banks', async (_req, res) => {
     const banks = await getBanks();
     return res.json({ banks });
   } catch (err) {
-    console.error('[swap/banks]', err);
+    logger.error({ err }, '[swap/banks]');
     return res.status(500).json({ error: 'Could not load banks.' });
   }
 });
@@ -99,7 +99,7 @@ router.post('/quote', async (req, res) => {
 // to sweep the swapped crypto to the treasury. No off-chain verification, no
 // fabricated settlement proof.
 router.post('/execute', async (req, res) => {
-  const { email, ephemeralBankDetails, tokenAddress, cryptoAmount, cryptoAmountUnits, assetCode, onChainSwapId, nullifier, changeCommitment } = req.body;
+  const { email, ephemeralBankDetails, tokenAddress, cryptoAmount, cryptoAmountUnits, assetCode, onChainSwapId, nullifier } = req.body;
 
   if (!email || !ephemeralBankDetails || !tokenAddress || onChainSwapId === undefined || onChainSwapId === null) {
     return res.status(400).json({ error: 'email, ephemeralBankDetails, tokenAddress and onChainSwapId are required.' });
@@ -144,7 +144,7 @@ router.post('/execute', async (req, res) => {
       const pool = new ShieldedPoolClient(cfgForVerify.rpcUrl, cfgForVerify.network, poolIdForVerify);
       payout = await pool.getPayout(BigInt(onChainSwapId));
     } catch (err) {
-      console.error('[swap/execute] get_payout lookup failed:', err);
+      logger.error({ err }, '[swap/execute] get_payout lookup failed');
       return res.status(404).json({ error: 'No matching on-chain swap found for that id.' });
     }
     if (payout.status !== 'Pending') {
@@ -197,7 +197,7 @@ router.post('/execute', async (req, res) => {
   let processorUsed = 'Lenco';
 
   if (!transfer.ok || transfer.status === 'failed') {
-    console.warn(`[swap/execute] Lenco failed: ${transfer.error}. Falling back to Paystack...`);
+    logger.warn({ error: transfer.error }, '[swap/execute] Lenco failed. Falling back to Paystack...');
     transfer = await initiatePaystackTransfer({
       amountNaira: quote.nairaAmount,
       accountNumber: accountNumber,
@@ -248,10 +248,10 @@ router.post('/execute', async (req, res) => {
       const pool = new ShieldedPoolClient(cfg.rpcUrl, cfg.network, poolId);
       txHash = await pool.claimSwap(BigInt(onChainSwapId), Keypair.fromSecret(cfg.relayerSecret));
     } catch (err) {
-      console.error('[swap/execute] claim_swap failed (fiat already paid):', err);
+      logger.error({ err }, '[swap/execute] claim_swap failed (fiat already paid)');
     }
   } else {
-    console.warn('[swap/execute] claim_swap skipped: STELLAR_CONTRACT_ID/STELLAR_RELAYER_SECRET not configured.');
+    logger.warn('[swap/execute] claim_swap skipped: STELLAR_CONTRACT_ID/STELLAR_RELAYER_SECRET not configured.');
   }
 
   const completed = await prisma.swap.update({

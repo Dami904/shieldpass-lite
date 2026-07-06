@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../db';
+import { logger } from '../logger';
 
 const router = Router();
 
@@ -13,7 +14,7 @@ export async function notify(email: string, type: string, title: string, extra?:
     try {
         await prisma.notification.create({ data: { email, type, title, body: extra?.body, amount: extra?.amount, asset: extra?.asset, txHash: extra?.txHash } });
     } catch (e) {
-        console.error('[notify] failed:', e);
+        logger.error({ err: e }, '[notify] failed');
     }
 }
 
@@ -36,6 +37,7 @@ router.get('/', async (req, res) => {
         ]);
         res.json({ items, unread });
     } catch (e: any) {
+        logger.error({ err: e }, '[notifications/list] failed');
         res.status(500).json({ error: e?.message || 'list failed' });
     }
 });
@@ -51,6 +53,7 @@ router.post('/read', async (req, res) => {
         });
         res.json({ ok: true });
     } catch (e: any) {
+        logger.error({ err: e }, '[notifications/read] failed');
         res.status(500).json({ error: e?.message || 'mark-read failed' });
     }
 });

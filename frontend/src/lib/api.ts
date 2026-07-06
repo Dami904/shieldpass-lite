@@ -15,9 +15,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  verifyWeb3Auth: (input: { idToken: string }) =>
+    request<{ email: string; providerSub?: string }>("/auth/web3auth", { method: "POST", body: JSON.stringify(input) }),
+
   linkWallet: (input: {
     email: string; pin?: string; smartWalletAddress: string; passkeyKeyId?: string;
-    shieldedOwner?: string; shieldedEncPub?: string; shieldedAddress?: string;
+    shieldedOwner?: string; shieldedEncPub?: string; shieldedAddress?: string; socialSub?: string;
   }) =>
     request<{
       success: boolean; tier: number; secretSalt: string; merkleRoot: string; leafIndex: number;
