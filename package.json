@@ -17,5 +17,11 @@
     "test:sdk": "npm --workspace @shieldpass/sdk run test:unit",
     "test": "npm run test:backend && npm run test:frontend && npm run test:sdk",
     "prisma:generate": "npm --workspace shieldpass-backend exec prisma generate"
+  },
+  "dependencies": {
+    "@iden3/bigarray": "0.0.2"
+  },
+  "overrides": {
+    "@iden3/bigarray": "0.0.2"
   }
 }
