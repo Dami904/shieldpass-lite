@@ -10,6 +10,7 @@ const { jwtVerifyMock } = vi.hoisted(() => ({
 
 vi.mock('jose', () => ({
   decodeProtectedHeader: vi.fn(() => ({ kid: 'test-kid', alg: 'ES256' })),
+  decodeJwt: vi.fn(() => ({ iss: 'test-issuer', aud: 'test-client-id' })),
   importJWK: vi.fn(async (jwk) => jwk),
   jwtVerify: jwtVerifyMock,
 }));

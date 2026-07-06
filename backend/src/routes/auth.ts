@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { importJWK, decodeProtectedHeader, jwtVerify, type JWTPayload, type JWK } from 'jose';
+import { importJWK, decodeProtectedHeader, decodeJwt, jwtVerify, type JWTPayload, type JWK } from 'jose';
 import { logger } from '../logger';
 import { authLimiter } from '../middleware/rateLimit';
 
@@ -39,6 +39,17 @@ async function getJwks(forceRefresh = false): Promise<JWK[]> {
 async function verifyWeb3AuthToken(idToken: string): Promise<JWTPayload> {
   const header = decodeProtectedHeader(idToken);
   let keys = await getJwks();
+  // TEMPORARY diagnostic — remove once the JWSSignatureVerificationFailed root cause is found.
+  try {
+    const unverifiedPayload = decodeJwt(idToken);
+    logger.info({
+      tokenHeader: header,
+      tokenIss: unverifiedPayload.iss,
+      tokenAud: unverifiedPayload.aud,
+      jwksKids: keys.map((k) => k.kid),
+      jwksUrl: WEB3AUTH_JWKS_URL,
+    }, '[auth/web3auth] diagnostic');
+  } catch { /* diagnostic only, never let this break real verification */ }
 
   // kid-matched key first (fast path), then every other key as a fallback.
   const order = (candidates: JWK[]) => {
