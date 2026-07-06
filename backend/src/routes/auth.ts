@@ -29,7 +29,11 @@ async function getJwks(forceRefresh = false): Promise<JWK[]> {
   const fresh = Date.now() - jwksCache.fetchedAt < JWKS_TTL_MS;
   if (jwksCache.keys.length && fresh && !forceRefresh) return jwksCache.keys;
 
-  const res = await fetch(WEB3AUTH_JWKS_URL);
+  // Sapphire Devnet rotates its signing keys periodically (per Web3Auth's own dashboard
+  // warning) — cache: 'no-store' plus a cache-busting query param ensures we bypass any HTTP/CDN
+  // caching in front of the JWKS endpoint and always see the truly current key set, not a stale
+  // cached response missing a just-rotated-in key.
+  const res = await fetch(`${WEB3AUTH_JWKS_URL}?_=${Date.now()}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`Failed to fetch Web3Auth JWKS: ${res.status}`);
   const data = await res.json();
   jwksCache = { keys: Array.isArray(data.keys) ? data.keys : [], fetchedAt: Date.now() };
@@ -39,17 +43,6 @@ async function getJwks(forceRefresh = false): Promise<JWK[]> {
 async function verifyWeb3AuthToken(idToken: string): Promise<JWTPayload> {
   const header = decodeProtectedHeader(idToken);
   let keys = await getJwks();
-  // TEMPORARY diagnostic — remove once the JWSSignatureVerificationFailed root cause is found.
-  try {
-    const unverifiedPayload = decodeJwt(idToken);
-    logger.info({
-      tokenHeader: header,
-      tokenIss: unverifiedPayload.iss,
-      tokenAud: unverifiedPayload.aud,
-      jwksKids: keys.map((k) => k.kid),
-      jwksUrl: WEB3AUTH_JWKS_URL,
-    }, '[auth/web3auth] diagnostic');
-  } catch { /* diagnostic only, never let this break real verification */ }
 
   // kid-matched key first (fast path), then every other key as a fallback.
   const order = (candidates: JWK[]) => {
@@ -60,6 +53,18 @@ async function verifyWeb3AuthToken(idToken: string): Promise<JWTPayload> {
   let lastErr: unknown;
   for (const forceRefresh of [false, true]) {
     if (forceRefresh) keys = await getJwks(true); // kid unknown in cache — refetch once, keys may have rotated
+    // TEMPORARY diagnostic — remove once the JWSSignatureVerificationFailed root cause is found.
+    try {
+      const unverifiedPayload = decodeJwt(idToken);
+      logger.info({
+        forceRefresh,
+        tokenHeader: header,
+        tokenIss: unverifiedPayload.iss,
+        tokenAud: unverifiedPayload.aud,
+        jwksKids: keys.map((k) => k.kid),
+        jwksUrl: WEB3AUTH_JWKS_URL,
+      }, '[auth/web3auth] diagnostic');
+    } catch { /* diagnostic only, never let this break real verification */ }
     for (const jwk of order(keys)) {
       try {
         const key = await importJWK(jwk, 'ES256');
