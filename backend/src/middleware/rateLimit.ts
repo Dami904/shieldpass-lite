@@ -33,8 +33,8 @@ export const accountLookupLimiter = rateLimit({
   skip,
 });
 
-/** /auth/web3auth verifies a client-supplied idToken against a remote JWKS on every call — cap
- * how fast a single IP can throw tokens at it (garbage-token DoS / email-enumeration timing). */
+/** /auth/session verifies a client-supplied Firebase idToken on every call — cap how fast a
+ * single IP can throw tokens at it (garbage-token DoS / email-enumeration timing). */
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,

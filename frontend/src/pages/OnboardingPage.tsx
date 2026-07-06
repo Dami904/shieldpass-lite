@@ -7,7 +7,7 @@ import { makeWallet } from "../lib/smartAccount";
 import { humanizeError } from "@shieldpass/sdk/dist/errors";
 import { deriveSeedFromPassword, deriveIdentityFromSeed, enrollPasskeyUnlock } from "../lib/shieldedKey";
 import { unlockBankVault } from "../lib/bankVault";
-import { loginWithWeb3Auth } from "../lib/web3auth";
+import { loginWithGoogle } from "../lib/firebaseAuth";
 import type { ShieldedIdentity } from "@shieldpass/sdk/dist/identity";
 
 import { AnimatedLayout } from "../components/ui/animated-characters-login-page";
@@ -41,7 +41,7 @@ export default function OnboardingPage() {
   // background and will appear in the shielded balance once it's real (hide-until-settled).
   const [welcomeBonus, setWelcomeBonus] = useState<'settling' | null>(null);
 
-  // A social login (Web3Auth) just verifies an email; a manually-typed one still needs the
+  // A social login (Firebase) just verifies an email; a manually-typed one still needs the
   // usual format check. Either way a PIN/password is still required next — it's the seed
   // material for the shielded identity (deriveSeedFromPassword), not just an auth factor.
   const pinValid = /^\d{4,6}$/.test(pin) || pin.length >= 8;
@@ -53,7 +53,7 @@ export default function OnboardingPage() {
     setErrorMessage(null);
     setSocialBusy(true);
     try {
-      const { email: verifiedEmail, providerSub } = await loginWithWeb3Auth((idToken) => api.verifyWeb3Auth({ idToken }));
+      const { email: verifiedEmail, providerSub } = await loginWithGoogle((idToken) => api.verifySession({ idToken }));
       setEmail(verifiedEmail);
       setSocialSub(providerSub);
       setSocialVerified(true);
@@ -190,7 +190,7 @@ export default function OnboardingPage() {
                 disabled={socialBusy || socialVerified}
                 className={socialVerified ? btnDisabled : "w-full font-semibold px-6 py-4 rounded-xl bg-white/10 hover:bg-white/15 text-white border border-white/10 transition-all cursor-pointer font-mono text-sm"}
               >
-                {socialVerified ? `Signed in as ${email}` : socialBusy ? "Opening login…" : "Continue with Google / social / email"}
+                {socialVerified ? `Signed in as ${email}` : socialBusy ? "Opening login…" : "Continue with Google"}
               </button>
 
               <div className="flex items-center gap-3 text-white/25 text-xs">

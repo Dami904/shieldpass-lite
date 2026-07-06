@@ -62,7 +62,7 @@ Traditional off-ramps force you to upload your identity, trust a custodian with 
 
 Meet **Tobi**, who wants to use Shieldpass-lite:
 
-**1. Onboard (invisible funding).** Tobi signs up with Google/social/email (Web3Auth) or a manually-typed email, then secures the account with a Passkey (Face ID). His **shielded identity** (spending + encryption keys) is derived from the passkey itself. Shieldpass-lite mints him a secret **note** worth 100 XLM — no public transaction happens. To the outside world, his wallet holds $0.
+**1. Onboard (invisible funding).** Tobi signs up with Google (Firebase Auth) or a manually-typed email, then secures the account with a Passkey (Face ID). His **shielded identity** (spending + encryption keys) is derived from the passkey itself. Shieldpass-lite mints him a secret **note** worth 100 XLM — no public transaction happens. To the outside world, his wallet holds $0.
 
 **2. Auto-shield.** There's no manual "Shield" button — any XLM/USDC that lands in Tobi's public wallet is detected and shielded automatically (one passkey confirmation per deposit). Nothing sits in the open for long.
 
@@ -218,9 +218,9 @@ Key environment variables:
 | `backend/.env` | `PAYSTACK_SECRET_KEY` / `LENCO_*` | Naira payout providers |
 | `backend/.env` | `FAUCET_NOTE_AMOUNT` / `FAUCET_NOTE_ASSET` | Onboarding seed note (defaults `100` / `XLM`) |
 | `backend/.env` | `SEED_TOKENS` | Fallback public-funding for brand-new smart wallets (comma-separated `contractId:amount`) |
-| `backend/.env` | `WEB3AUTH_CLIENT_ID` / `WEB3AUTH_JWKS_URL` | Verifies the Web3Auth (Google/social/email) login idToken — must match the frontend's `VITE_WEB3AUTH_CLIENT_ID` |
+| `backend/.env` | `FIREBASE_PROJECT_ID` / `FIREBASE_CLIENT_EMAIL` / `FIREBASE_PRIVATE_KEY` | Service account credentials, verifies the Firebase (Google) login idToken — `FIREBASE_PROJECT_ID` must match the frontend's `VITE_FIREBASE_PROJECT_ID` |
 | `frontend/.env` | `VITE_API_URL` | Backend URL (powers swaps, transfers, scanning, notifications) |
-| `frontend/.env` | `VITE_WEB3AUTH_CLIENT_ID` | Project client id from the [Web3Auth dashboard](https://dashboard.web3auth.io) — the "Continue with Google / social / email" button throws until this is set |
+| `frontend/.env` | `VITE_FIREBASE_API_KEY` / `VITE_FIREBASE_AUTH_DOMAIN` / `VITE_FIREBASE_PROJECT_ID` / `VITE_FIREBASE_APP_ID` | Web app config from the [Firebase console](https://console.firebase.google.com) — the "Continue with Google" button throws until these are set |
 | `frontend/.env` | `VITE_ACCOUNT_WASM_HASH` / `VITE_WEBAUTHN_VERIFIER_ADDRESS` | smart-account-kit account wasm + WebAuthn verifier contract |
 | `frontend/.env` | `VITE_XLM_POOL_CONTRACT_ID` / `VITE_USDC_POOL_CONTRACT_ID` | Per-asset Shielded Pool contract ids |
 | `frontend/.env` | `VITE_XLM_SAC` / `VITE_USDC_SAC` | Per-asset SAC addresses (drives which assets show up in the UI) |
@@ -233,8 +233,9 @@ Key environment variables:
 deliberately `sync: false` (kept out of the repo) and must be set by hand in each dashboard
 before a real deploy will actually work:
 
-- [ ] **Web3Auth project** — create one at [dashboard.web3auth.io](https://dashboard.web3auth.io),
-      set `VITE_WEB3AUTH_CLIENT_ID` in Vercel and `WEB3AUTH_CLIENT_ID` in Render to the same id.
+- [ ] **Firebase project** — create one at [console.firebase.google.com](https://console.firebase.google.com),
+      enable the Google sign-in provider, set the `VITE_FIREBASE_*` vars in Vercel from the Web
+      app config, and the `FIREBASE_*` vars in Render from a generated service account key.
 - [ ] **Render dashboard secrets** — `NEON_CONNECTION_STRING`, `STELLAR_CONTRACT_ID`,
       `STELLAR_RELAYER_SECRET`, `CORS_ORIGIN`, `CHANNELS_API_KEY`, `PAYSTACK_SECRET_KEY`. The two
       Stellar values must be Shieldpass-lite's **own** pool/relayer, never copied from another
