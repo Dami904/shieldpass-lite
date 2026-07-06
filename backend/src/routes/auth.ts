@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { importJWK, decodeProtectedHeader, jwtVerify, type JWTPayload, type JWK } from 'jose';
 import { logger } from '../logger';
 import { authLimiter } from '../middleware/rateLimit';
 
@@ -15,19 +15,66 @@ const router = Router();
 // social login into a verified email. Everything after that (passkey creation, smart wallet
 // deploy, /kyc/link-wallet) is the same non-custodial flow ShieldPass already uses.
 const WEB3AUTH_JWKS_URL = process.env.WEB3AUTH_JWKS_URL || 'https://api-auth.web3auth.io/jwks';
-const jwks = createRemoteJWKSet(new URL(WEB3AUTH_JWKS_URL));
+
+// We deliberately don't use jose's createRemoteJWKSet: its automatic kid-based key selection
+// proved unreliable against Web3Auth's JWKS in practice (confirmed the hard way on a previous
+// project) — a token's `kid` sometimes doesn't cleanly match by jose's stricter alg/kty
+// filtering even though a key that verifies the signature IS present in the set. Instead, fetch
+// the JWKS ourselves and try every key until one verifies, trying the kid-matched key first as
+// a fast path.
+const JWKS_TTL_MS = 10 * 60 * 1000;
+let jwksCache: { keys: JWK[]; fetchedAt: number } = { keys: [], fetchedAt: 0 };
+
+async function getJwks(forceRefresh = false): Promise<JWK[]> {
+  const fresh = Date.now() - jwksCache.fetchedAt < JWKS_TTL_MS;
+  if (jwksCache.keys.length && fresh && !forceRefresh) return jwksCache.keys;
+
+  const res = await fetch(WEB3AUTH_JWKS_URL);
+  if (!res.ok) throw new Error(`Failed to fetch Web3Auth JWKS: ${res.status}`);
+  const data = await res.json();
+  jwksCache = { keys: Array.isArray(data.keys) ? data.keys : [], fetchedAt: Date.now() };
+  return jwksCache.keys;
+}
+
+async function verifyWeb3AuthToken(idToken: string): Promise<JWTPayload> {
+  const header = decodeProtectedHeader(idToken);
+  let keys = await getJwks();
+
+  // kid-matched key first (fast path), then every other key as a fallback.
+  const order = (candidates: JWK[]) => {
+    const matched = candidates.find((k) => k.kid === header.kid);
+    return matched ? [matched, ...candidates.filter((k) => k !== matched)] : candidates;
+  };
+
+  let lastErr: unknown;
+  for (const forceRefresh of [false, true]) {
+    if (forceRefresh) keys = await getJwks(true); // kid unknown in cache — refetch once, keys may have rotated
+    for (const jwk of order(keys)) {
+      try {
+        const key = await importJWK(jwk, 'ES256');
+        const { payload } = await jwtVerify(idToken, key, {
+          algorithms: ['ES256'],
+          // Web3Auth's idToken audience is the app's Web3Auth client id — set this in the backend
+          // env once the Web3Auth project is created, so a token minted for a different app can't
+          // be replayed against this one.
+          audience: process.env.WEB3AUTH_CLIENT_ID || undefined,
+        });
+        return payload;
+      } catch (err) {
+        lastErr = err; // try the next key
+      }
+    }
+    if (keys.some((k) => k.kid === header.kid)) break; // kid was present but every key failed — refetching won't help
+  }
+  throw lastErr ?? new Error('No verification keys available.');
+}
 
 router.post('/web3auth', authLimiter, async (req, res) => {
   const { idToken } = req.body;
   if (!idToken || typeof idToken !== 'string') return res.status(400).json({ error: 'idToken is required.' });
 
   try {
-    const { payload } = await jwtVerify(idToken, jwks, {
-      // Web3Auth's idToken audience is the app's Web3Auth client id — set this in the backend
-      // env once the Web3Auth project is created, so a token minted for a different app can't
-      // be replayed against this one.
-      audience: process.env.WEB3AUTH_CLIENT_ID || undefined,
-    });
+    const payload = await verifyWeb3AuthToken(idToken);
 
     const email = typeof payload.email === 'string' ? payload.email : undefined;
     const emailVerified = payload.email_verified !== false; // most providers set this true; email/passwordless login has no field at all
