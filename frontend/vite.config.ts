@@ -29,30 +29,22 @@ export default defineConfig({
     ],
     dedupe: ['@aztec/bb.js'],
   },
-  // Cross-origin isolation so barretenberg (bb.js) can use SharedArrayBuffer for in-browser ZK
-  // proving. credentialless (not require-corp) keeps the jsdelivr Geist fonts working.
-  // COOP is 'same-origin-allow-popups', not the stricter 'same-origin': Web3Auth's login flow
-  // opens an OAuth popup that must postMessage back to this window on completion, and plain
-  // same-origin severs window.opener for cross-origin popups — the popup hangs on its callback
-  // page forever. bb.js feature-detects `crossOriginIsolated` (see getSharedMemoryAvailable in
+  // No COOP/COEP headers: they were set for cross-origin isolation so barretenberg (bb.js) can
+  // use SharedArrayBuffer for in-browser ZK proving, but COOP isolation depends on BOTH sides —
+  // even 'same-origin-allow-popups' on our side can't guarantee Web3Auth's own auth.web3auth.io
+  // page (which we don't control) reciprocates, and a mismatch silently breaks the OAuth popup's
+  // postMessage back to us (WalletLoginError: wallet popup has been closed by the user). bb.js
+  // feature-detects `crossOriginIsolated` (see getSharedMemoryAvailable in
   // barretenberg_wasm/helpers/browser) and falls back to single-threaded proving gracefully when
-  // it's unavailable, so this only costs proving speed, not correctness.
+  // it's unavailable, so dropping these headers only costs proving speed, not correctness.
   server: {
     host: 'localhost',
     port: 5173,
     open: true,
-    headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
-      'Cross-Origin-Embedder-Policy': 'credentialless',
-    },
   },
   preview: {
     host: 'localhost',
     port: 4173,
-    headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
-      'Cross-Origin-Embedder-Policy': 'credentialless',
-    },
   },
   build: {
     outDir: 'dist',
