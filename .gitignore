@@ -45,3 +45,5 @@ hh
 SDK/circom/build/
 *.ptau
 docs-site/package-lock.json
+.vercel
+.env*
