@@ -21,6 +21,7 @@
   "dependencies": {
     "@firebase/app": "0.15.0",
     "@iden3/bigarray": "0.0.2",
+    "@openzeppelin/relayer-sdk": "^1.8.0",
     "@pinojs/redact": "0.4.0"
   },
   "overrides": {
