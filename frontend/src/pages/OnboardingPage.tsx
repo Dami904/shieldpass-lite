@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { api } from "../lib/api";
@@ -159,6 +159,22 @@ export default function OnboardingPage() {
     }
   }
 
+  // Google already verified identity, so once a valid PIN is typed there's nothing left to
+  // confirm manually — go straight to the passkey prompt instead of making the user click
+  // Continue then Secure Account. Debounced so a 4-digit PIN doesn't fire mid-typing if the
+  // user meant to keep going to 5 or 6 digits.
+  useEffect(() => {
+    if (!socialVerified || !pinValid || stage !== "info") return;
+    const timer = setTimeout(() => {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate debounced auto-advance, not a render-time side effect
+      createPasskey();
+    }, 600);
+    return () => clearTimeout(timer);
+    // createPasskey is intentionally omitted: it's recreated every render, and including it
+    // would re-arm the timer on every keystroke render rather than just PIN/social changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socialVerified, pinValid, pin, stage]);
+
   return (
     <AnimatedLayout showPassword={false} passwordLength={pin.length} isTyping={isTyping}>
       <div className="relative w-full sm:w-[400px] mx-auto space-y-6">
@@ -221,7 +237,7 @@ export default function OnboardingPage() {
                 onBlur={() => setIsTyping(false)}
                 placeholder="4-6 digit PIN, or an 8+ character password"
               />
-              <button className={infoValid ? btnPrimary : btnDisabled} disabled={!infoValid} onClick={() => setStage("passkey")}>Continue</button>
+              <button className={infoValid ? btnPrimary : btnDisabled} disabled={!infoValid} onClick={() => (socialVerified ? createPasskey() : setStage("passkey"))}>Continue</button>
             </motion.div>
           )}
 
